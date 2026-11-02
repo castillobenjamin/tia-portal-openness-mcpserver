@@ -504,6 +504,154 @@ namespace TiaPortalMcpServer.Services
 
         #endregion
 
+        #region SD Documents (.s7dcl/.s7res)
+
+        /// <summary>
+        /// Export a block as SIMATIC SD documents (.s7dcl/.s7res) named after the block.
+        /// Failures are reported in the result instead of being thrown.
+        /// </summary>
+        public DocumentOperationResult ExportAsDocuments(PlcBlock block, DirectoryInfo directory)
+        {
+            var blockName = block.Name;
+            try
+            {
+                var exportResult = block.ExportAsDocuments(directory, blockName);
+                return new DocumentOperationResult
+                {
+                    Name = blockName,
+                    State = exportResult.State.ToString(),
+                    Files = exportResult.ExportedDocuments.Select(f => f.FullName).ToList(),
+                    Messages = GetDocumentMessages(exportResult.Messages)
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to export block {Name} as documents", blockName);
+                return CreateFailedDocumentResult(blockName, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Export each block as SIMATIC SD documents. A failing block does not stop the remaining ones.
+        /// </summary>
+        public DocumentBatchResult ExportAllAsDocuments(IEnumerable<PlcBlock> blocks, DirectoryInfo directory)
+        {
+            return DocumentBatchResult.From(blocks.Select(block => ExportAsDocuments(block, directory)).ToList());
+        }
+
+        /// <summary>
+        /// Import a block from SIMATIC SD documents (.s7dcl/.s7res) into the given block group.
+        /// Failures are reported in the result instead of being thrown.
+        /// </summary>
+        public DocumentOperationResult ImportFromDocuments(PlcBlockGroup blockGroup, DirectoryInfo directory, string fileNameWithoutExtension, ImportDocumentOptions option)
+        {
+            try
+            {
+                var importResult = blockGroup.Blocks.ImportFromDocuments(directory, fileNameWithoutExtension, option);
+                return new DocumentOperationResult
+                {
+                    Name = fileNameWithoutExtension,
+                    State = importResult.State.ToString(),
+                    Blocks = importResult.ImportedPlcBlocks.Select(block => CreateBlockInfo(block)).ToList(),
+                    Messages = GetDocumentMessages(importResult.Messages)
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to import block {Name} from documents", fileNameWithoutExtension);
+                return CreateFailedDocumentResult(fileNameWithoutExtension, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Import each document pair into the given block group. A failing pair does not stop the remaining ones.
+        /// </summary>
+        public DocumentBatchResult ImportAllFromDocuments(PlcBlockGroup blockGroup, DirectoryInfo directory, IEnumerable<string> fileNamesWithoutExtension, ImportDocumentOptions option)
+        {
+            // Plain loop: a lambda capturing the Siemens enum would make a closure type that cannot load without the Openness resolver
+            var results = new List<DocumentOperationResult>();
+            foreach (var name in fileNamesWithoutExtension)
+            {
+                results.Add(ImportFromDocuments(blockGroup, directory, name, option));
+            }
+            return DocumentBatchResult.From(results);
+        }
+
+        /// <summary>
+        /// Dry run for an import: checks the document pair and the import option against the project without importing.
+        /// </summary>
+        /// <param name="blockExists">Returns true when a block with the given name already exists anywhere in the PLC software.</param>
+        public DocumentOperationResult ValidateDocuments(DirectoryInfo directory, string fileNameWithoutExtension, ImportDocumentOptions option, Func<string, bool> blockExists)
+        {
+            var result = new DocumentOperationResult { Name = fileNameWithoutExtension, State = DocumentOperationResult.StateValidated };
+
+            var s7dclFile = new FileInfo(Path.Combine(directory.FullName, fileNameWithoutExtension + ".s7dcl"));
+            if (!s7dclFile.Exists)
+            {
+                result.State = DocumentOperationResult.StateFailure;
+                result.Messages.Add($"File '{s7dclFile.Name}' not found in '{directory.FullName}'");
+                return result;
+            }
+
+            if (s7dclFile.Length == 0)
+            {
+                result.State = DocumentOperationResult.StateFailure;
+                result.Messages.Add($"File '{s7dclFile.Name}' is empty");
+                return result;
+            }
+
+            if (!File.Exists(Path.Combine(directory.FullName, fileNameWithoutExtension + ".s7res")))
+            {
+                result.Messages.Add($"No '{fileNameWithoutExtension}.s7res' next to the .s7dcl file; multilingual texts will not be imported");
+            }
+
+            try
+            {
+                if (option == ImportDocumentOptions.None && blockExists(fileNameWithoutExtension))
+                {
+                    result.State = DocumentOperationResult.StateFailure;
+                    result.Messages.Add($"Block '{fileNameWithoutExtension}' already exists and importOption 'None' does not overwrite existing blocks. Use 'Override' to replace it");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to check whether block {Name} already exists", fileNameWithoutExtension);
+                result.Messages.Add($"Could not check whether block '{fileNameWithoutExtension}' already exists: {ex.Message}");
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Dry run for a bulk import: validates each document pair independently.
+        /// </summary>
+        public DocumentBatchResult ValidateAllDocuments(DirectoryInfo directory, IEnumerable<string> fileNamesWithoutExtension, ImportDocumentOptions option, Func<string, bool> blockExists)
+        {
+            var results = new List<DocumentOperationResult>();
+            foreach (var name in fileNamesWithoutExtension)
+            {
+                results.Add(ValidateDocuments(directory, name, option, blockExists));
+            }
+            return DocumentBatchResult.From(results);
+        }
+
+        private static IList<string> GetDocumentMessages(DocumentResultMessageComposition messages)
+        {
+            return messages.Select(m => m.Message).ToList();
+        }
+
+        private static DocumentOperationResult CreateFailedDocumentResult(string name, string error)
+        {
+            return new DocumentOperationResult
+            {
+                Name = name,
+                State = DocumentOperationResult.StateFailure,
+                Messages = new List<string> { error }
+            };
+        }
+
+        #endregion
+
         #region Loadable Files
 
         /// <summary>

@@ -24,9 +24,6 @@ namespace TiaPortalMcpServer.Services
         private readonly object _lock = new object();
         private bool _disposed = false;
 
-        // closing parantheses for regex characters ommitted, because they are not relevant for regex detection
-        private readonly char[] _regexChars = ['.', '^', '$', '*', '+', '?', '(', '[', '{', '\\', '|'];
-
         public TiaPortalService(ILogger<TiaPortalService> logger)
         {
             _logger = logger;
@@ -303,9 +300,7 @@ namespace TiaPortalMcpServer.Services
         {
             foreach (PlcBlock block in blockGroup.Blocks)
             {
-                if (string.IsNullOrEmpty(regexName) ||
-                    (regexName.IndexOfAny(_regexChars) >= 0 && Regex.IsMatch(block.Name, regexName, RegexOptions.IgnoreCase)) ||
-                    block.Name.Contains(regexName, StringComparison.OrdinalIgnoreCase))
+                if (NameFilter.IsMatch(block.Name, regexName))
                 {
                     blocks.Add(block);
                 }
@@ -317,13 +312,58 @@ namespace TiaPortalMcpServer.Services
             }
         }
 
+        /// <summary>
+        /// Finds a block by exact name in the given group or any of its user subgroups.
+        /// </summary>
+        public PlcBlock? FindBlock(PlcBlockGroup blockGroup, string blockName)
+        {
+            var block = blockGroup.Blocks.Find(blockName);
+            if (block != null)
+            {
+                return block;
+            }
+
+            foreach (PlcBlockUserGroup userGroup in blockGroup.Groups)
+            {
+                block = FindBlock(userGroup, blockName);
+                if (block != null)
+                {
+                    return block;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Resolves a block group path such as "Motion/Axis" relative to the given root group.
+        /// An empty path returns the root group; a single segment is a direct child of the root.
+        /// </summary>
+        public PlcBlockGroup? FindBlockGroup(PlcBlockGroup rootGroup, string? groupPath)
+        {
+            if (string.IsNullOrWhiteSpace(groupPath))
+            {
+                return rootGroup;
+            }
+
+            PlcBlockGroup? current = rootGroup;
+            foreach (var segment in groupPath!.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                current = current.Groups.Find(segment.Trim());
+                if (current == null)
+                {
+                    return null;
+                }
+            }
+
+            return current;
+        }
+
         private void GetRecursiveBlocksInUserGroup(PlcBlockUserGroup userGroup, List<PlcBlock> blocks, string regexName)
         {
             foreach (PlcBlock block in userGroup.Blocks)
             {
-                if (string.IsNullOrEmpty(regexName) ||
-                    (regexName.IndexOfAny(_regexChars) >= 0 && Regex.IsMatch(block.Name, regexName, RegexOptions.IgnoreCase)) ||
-                    block.Name.Contains(regexName, StringComparison.OrdinalIgnoreCase))
+                if (NameFilter.IsMatch(block.Name, regexName))
                 {
                     blocks.Add(block);
                 }

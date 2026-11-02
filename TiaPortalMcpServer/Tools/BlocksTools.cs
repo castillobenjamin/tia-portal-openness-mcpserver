@@ -905,6 +905,303 @@ namespace TiaPortalMcpServer
 
         #endregion
 
+        #region SD Document Tools
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export a PLC block as SIMATIC SD documents (.s7dcl/.s7res) for version control or exchange with text editors/diff tools. The block is searched in all block groups. Returns the export state, the written files and any messages from TIA Portal. Prerequisites: Project must be open, device must exist, block must exist, TIA Portal V20 or newer. Use blocks_import_from_documents to reverse this operation.")]
+        public CallToolResult blocks_export_as_documents(
+            [Description("Device name")] string deviceName,
+            [Description("Block name")] string blockName,
+            [Description("Directory path to export the documents to")] string exportPath)
+        {
+            _logger.LogInformation("blocks_export_as_documents called with deviceName='{DeviceName}', blockName='{BlockName}', exportPath='{ExportPath}'", deviceName, blockName, exportPath);
+
+            try
+            {
+                var project = _sessionManager.CurrentProject;
+                if (project == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
+                }
+
+                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                if (device == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                }
+
+                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
+                if (plcSoftware == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
+                }
+
+                var block = _sessionManager.PortalService.FindBlock(plcSoftware.BlockGroup, blockName);
+                if (block == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.BlockNotFound, $"Block '{blockName}' not found"));
+                }
+
+                var directory = new DirectoryInfo(exportPath);
+                if (!directory.Exists)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"Export directory '{exportPath}' does not exist"));
+                }
+
+                var result = _blocksAdapter.ExportAsDocuments(block, directory);
+                if (result.IsFailure)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.TiaError, $"Failed to export block '{blockName}' as documents: {string.Join("; ", result.Messages)}"));
+                }
+
+                return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateSuccess(result));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in blocks_export_as_documents");
+                return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.TiaError, "Unexpected error", ex.Message));
+            }
+        }
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export multiple PLC blocks from all block groups as SIMATIC SD documents (.s7dcl/.s7res), optionally filtered by name/regex. Each block is exported independently; returns succeeded/failed counts and a per-block state with files and TIA Portal messages. Prerequisites: Project must be open, device must exist, TIA Portal V20 or newer. Use an empty regexName to export all blocks.")]
+        public CallToolResult blocks_export_all_as_documents(
+            [Description("Device name")] string deviceName,
+            [Description("Directory path to export the documents to")] string exportPath,
+            [Description("Case-insensitive name fragment or regular expression to filter blocks. Empty string exports all blocks.")] string regexName = "")
+        {
+            _logger.LogInformation("blocks_export_all_as_documents called with deviceName='{DeviceName}', exportPath='{ExportPath}', regexName='{RegexName}'", deviceName, exportPath, regexName);
+
+            try
+            {
+                if (!NameFilter.TryValidate(regexName, out var filterError))
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, filterError));
+                }
+
+                var project = _sessionManager.CurrentProject;
+                if (project == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
+                }
+
+                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                if (device == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                }
+
+                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
+                if (plcSoftware == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
+                }
+
+                var directory = new DirectoryInfo(exportPath);
+                if (!directory.Exists)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, $"Export directory '{exportPath}' does not exist"));
+                }
+
+                var blocks = _sessionManager.PortalService.GetBlocks(project, deviceName, regexName);
+                var result = _blocksAdapter.ExportAllAsDocuments(blocks, directory);
+                return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateSuccess(result));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in blocks_export_all_as_documents");
+                return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.TiaError, "Unexpected error", ex.Message));
+            }
+        }
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Import a PLC block from SIMATIC SD documents (.s7dcl/.s7res) into the PLC software. Returns the import state, the imported blocks and any messages from TIA Portal. Prerequisites: Project must be open, device must exist, matching .s7dcl file must exist in importPath, TIA Portal V20 or newer. Use dryRun=true to check the document pair and import option without importing. groupName is a path such as 'Motion/Axis'; leave it empty to import into the root block group.")]
+        public CallToolResult blocks_import_from_documents(
+            [Description("Device name")] string deviceName,
+            [Description("Directory path containing the .s7dcl/.s7res document files")] string importPath,
+            [Description("Block file name without extension (must match the .s7dcl file name)")] string fileNameWithoutExtension,
+            [Description("Target block group path, e.g. 'Motion/Axis'. Leave empty for the root block group.")] string groupName = "",
+            [Description("Import option: 'None' (fail if the block exists), 'Override', 'SkipInactiveCultures', or 'ActivateInactiveCultures'")] string importOption = "Override",
+            [Description("If true, only validate the document pair and import option without importing")] bool dryRun = false)
+        {
+            _logger.LogInformation("blocks_import_from_documents called with deviceName='{DeviceName}', importPath='{ImportPath}', fileNameWithoutExtension='{FileName}', groupName='{GroupName}', dryRun={DryRun}", deviceName, importPath, fileNameWithoutExtension, groupName, dryRun);
+
+            try
+            {
+                if (!TryParseImportDocumentOptions(importOption, out var option, out var parseError))
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.InvalidParameter, parseError));
+                }
+
+                var project = _sessionManager.CurrentProject;
+                if (project == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
+                }
+
+                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                if (device == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                }
+
+                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
+                if (plcSoftware == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
+                }
+
+                var directory = new DirectoryInfo(importPath);
+                if (!directory.Exists)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"Import directory '{importPath}' does not exist"));
+                }
+
+                var blockGroup = _sessionManager.PortalService.FindBlockGroup(plcSoftware.BlockGroup, groupName);
+                if (blockGroup == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"Block group '{groupName}' not found"));
+                }
+
+                var result = dryRun
+                    ? _blocksAdapter.ValidateDocuments(directory, fileNameWithoutExtension, option, name => _sessionManager.PortalService.FindBlock(plcSoftware.BlockGroup, name) != null)
+                    : _blocksAdapter.ImportFromDocuments(blockGroup, directory, fileNameWithoutExtension, option);
+
+                if (result.IsFailure)
+                {
+                    var action = dryRun ? "Validation of" : "Import of";
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.TiaError, $"{action} '{fileNameWithoutExtension}' failed: {string.Join("; ", result.Messages)}"));
+                }
+
+                if (!dryRun)
+                {
+                    SaveProjectAfterDocumentImport();
+                }
+
+                return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateSuccess(result));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in blocks_import_from_documents");
+                return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.TiaError, "Unexpected error", ex.Message));
+            }
+        }
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Import multiple PLC blocks from SIMATIC SD documents (.s7dcl/.s7res) in a directory, optionally filtered by name/regex. Each document pair is imported independently; returns succeeded/failed counts and a per-file state with imported blocks and TIA Portal messages. The project is saved if at least one import succeeded. Prerequisites: Project must be open, device must exist, TIA Portal V20 or newer. Use dryRun=true to check the document pairs and import option without importing. groupName is a path such as 'Motion/Axis'; leave it empty to import into the root block group.")]
+        public CallToolResult blocks_import_all_from_documents(
+            [Description("Device name")] string deviceName,
+            [Description("Directory path containing the .s7dcl/.s7res document files")] string importPath,
+            [Description("Target block group path, e.g. 'Motion/Axis'. Leave empty for the root block group.")] string groupName = "",
+            [Description("Case-insensitive name fragment or regular expression to filter which .s7dcl files to import. Empty string imports all.")] string regexName = "",
+            [Description("Import option: 'None' (fail if the block exists), 'Override', 'SkipInactiveCultures', or 'ActivateInactiveCultures'")] string importOption = "Override",
+            [Description("If true, only validate the document pairs and import option without importing")] bool dryRun = false)
+        {
+            _logger.LogInformation("blocks_import_all_from_documents called with deviceName='{DeviceName}', importPath='{ImportPath}', groupName='{GroupName}', regexName='{RegexName}', dryRun={DryRun}", deviceName, importPath, groupName, regexName, dryRun);
+
+            try
+            {
+                if (!TryParseImportDocumentOptions(importOption, out var option, out var parseError))
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, parseError));
+                }
+
+                if (!NameFilter.TryValidate(regexName, out var filterError))
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, filterError));
+                }
+
+                var project = _sessionManager.CurrentProject;
+                if (project == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
+                }
+
+                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                if (device == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                }
+
+                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
+                if (plcSoftware == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
+                }
+
+                var directory = new DirectoryInfo(importPath);
+                if (!directory.Exists)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, $"Import directory '{importPath}' does not exist"));
+                }
+
+                var blockGroup = _sessionManager.PortalService.FindBlockGroup(plcSoftware.BlockGroup, groupName);
+                if (blockGroup == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, $"Block group '{groupName}' not found"));
+                }
+
+                var fileNames = directory.GetFiles("*.s7dcl", SearchOption.TopDirectoryOnly)
+                    .Select(f => Path.GetFileNameWithoutExtension(f.Name))
+                    .Where(n => NameFilter.IsMatch(n, regexName))
+                    .ToList();
+
+                var result = dryRun
+                    ? _blocksAdapter.ValidateAllDocuments(directory, fileNames, option, name => _sessionManager.PortalService.FindBlock(plcSoftware.BlockGroup, name) != null)
+                    : _blocksAdapter.ImportAllFromDocuments(blockGroup, directory, fileNames, option);
+
+                if (!dryRun && result.SucceededCount > 0)
+                {
+                    SaveProjectAfterDocumentImport();
+                }
+
+                return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateSuccess(result));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in blocks_import_all_from_documents");
+                return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.TiaError, "Unexpected error", ex.Message));
+            }
+        }
+
+        private void SaveProjectAfterDocumentImport()
+        {
+            try
+            {
+                _sessionManager.SaveCurrentProject();
+                _logger.LogInformation("Project saved after block import from documents");
+            }
+            catch (Exception saveEx)
+            {
+                _logger.LogWarning(saveEx, "Failed to save project after block import from documents");
+            }
+        }
+
+        private static bool TryParseImportDocumentOptions(string importOption, out ImportDocumentOptions option, out string errorMessage)
+        {
+            switch ((importOption ?? string.Empty).Trim().ToLowerInvariant())
+            {
+                case "none":
+                    option = ImportDocumentOptions.None;
+                    errorMessage = string.Empty;
+                    return true;
+                case "override":
+                    option = ImportDocumentOptions.Override;
+                    errorMessage = string.Empty;
+                    return true;
+                case "skipinactivecultures":
+                    option = ImportDocumentOptions.SkipInactiveCultures;
+                    errorMessage = string.Empty;
+                    return true;
+                case "activateinactivecultures":
+                    option = ImportDocumentOptions.ActivateInactiveCultures;
+                    errorMessage = string.Empty;
+                    return true;
+                default:
+                    option = ImportDocumentOptions.Override;
+                    errorMessage = $"Invalid importOption '{importOption}'. Must be 'None', 'Override', 'SkipInactiveCultures', or 'ActivateInactiveCultures'";
+                    return false;
+            }
+        }
+
+        #endregion
+
         #region Webserver Pages Tools
 
         // [McpServerTool, Description("Generate blocks for webserver user-defined pages")]
