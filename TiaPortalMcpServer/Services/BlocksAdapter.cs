@@ -652,6 +652,265 @@ namespace TiaPortalMcpServer.Services
 
         #endregion
 
+        #region SimaticML XML (.xml)
+
+        // Note: no lambdas here capture the Siemens option enums. A closure with a Siemens value-type field
+        // cannot be loaded without the Openness resolver, which breaks reflection over this assembly in unit tests.
+
+        /// <summary>
+        /// Export a block as a SimaticML file. Failures are reported in the result instead of being thrown.
+        /// </summary>
+        public DocumentOperationResult ExportBlockAsXml(PlcBlock block, FileInfo targetFile, string groupPath, ExportOptions options, bool overwrite)
+        {
+            var name = block.Name;
+            var prepareError = PrepareXmlExportTarget(targetFile, overwrite);
+            if (prepareError != null)
+            {
+                return CreateXmlResult(name, groupPath, targetFile, DocumentOperationResult.StateFailure, prepareError);
+            }
+
+            try
+            {
+                block.Export(targetFile, options);
+                return CreateXmlResult(name, groupPath, targetFile, DocumentOperationResult.StateSuccess, null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to export block {Name} as SimaticML to {Path}", name, targetFile.FullName);
+                var result = CreateXmlResult(name, groupPath, targetFile, DocumentOperationResult.StateFailure, ex.Message);
+                AddExportHints(result, "Block", block);
+                return result;
+            }
+        }
+
+        /// <summary>
+        /// Export each block as a SimaticML file. A failing block does not stop the remaining ones.
+        /// </summary>
+        public DocumentBatchResult ExportBlocksAsXml(IEnumerable<(PlcBlock Block, FileInfo File, string GroupPath)> items, ExportOptions options, bool overwrite)
+        {
+            var results = new List<DocumentOperationResult>();
+            foreach (var item in items)
+            {
+                results.Add(ExportBlockAsXml(item.Block, item.File, item.GroupPath, options, overwrite));
+            }
+            return DocumentBatchResult.From(results);
+        }
+
+        /// <summary>
+        /// Export a PLC data type as a SimaticML file. Failures are reported in the result instead of being thrown.
+        /// </summary>
+        public DocumentOperationResult ExportTypeAsXml(PlcType type, FileInfo targetFile, string groupPath, ExportOptions options, bool overwrite)
+        {
+            var name = type.Name;
+            var prepareError = PrepareXmlExportTarget(targetFile, overwrite);
+            if (prepareError != null)
+            {
+                return CreateXmlResult(name, groupPath, targetFile, DocumentOperationResult.StateFailure, prepareError);
+            }
+
+            try
+            {
+                type.Export(targetFile, options);
+                return CreateXmlResult(name, groupPath, targetFile, DocumentOperationResult.StateSuccess, null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to export PLC data type {Name} as SimaticML to {Path}", name, targetFile.FullName);
+                var result = CreateXmlResult(name, groupPath, targetFile, DocumentOperationResult.StateFailure, ex.Message);
+                AddExportHints(result, "PLC data type", type);
+                return result;
+            }
+        }
+
+        /// <summary>
+        /// Export each PLC data type as a SimaticML file. A failing type does not stop the remaining ones.
+        /// </summary>
+        public DocumentBatchResult ExportTypesAsXml(IEnumerable<(PlcType Type, FileInfo File, string GroupPath)> items, ExportOptions options, bool overwrite)
+        {
+            var results = new List<DocumentOperationResult>();
+            foreach (var item in items)
+            {
+                results.Add(ExportTypeAsXml(item.Type, item.File, item.GroupPath, options, overwrite));
+            }
+            return DocumentBatchResult.From(results);
+        }
+
+        /// <summary>
+        /// Import the blocks of a SimaticML file into the given block group. Failures are reported in the result instead of being thrown.
+        /// </summary>
+        public DocumentOperationResult ImportBlocksFromXml(PlcBlockGroup blockGroup, XmlImportPlanItem item, ImportOptions options, SWImportOptions swOptions)
+        {
+            try
+            {
+                var imported = blockGroup.Blocks.Import(item.File, options, swOptions);
+                var result = XmlImportPlanner.CreateResult(item, DocumentOperationResult.StateSuccess, $"Imported into '{DisplayGroupPath(item.GroupPath)}'");
+                result.Blocks = imported.Select(block => CreateBlockInfo(block)).ToList();
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to import blocks from {Path}", item.File.FullName);
+                return XmlImportPlanner.CreateResult(item, DocumentOperationResult.StateFailure, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Import the blocks of several SimaticML files. Files that fail are retried while another pass imports
+        /// at least one more file, so files that depend on each other (an FB and its instance DB) can come in any order.
+        /// Results are returned in the order of <paramref name="items"/>.
+        /// </summary>
+        public IList<DocumentOperationResult> ImportBlocksFromXmlFiles(IList<(PlcBlockGroup Group, XmlImportPlanItem Item)> items, ImportOptions options, SWImportOptions swOptions)
+        {
+            var results = new DocumentOperationResult[items.Count];
+            var pending = Enumerable.Range(0, items.Count).ToList();
+            for (var pass = 1; pending.Count > 0; pass++)
+            {
+                var failed = new List<int>();
+                foreach (var index in pending)
+                {
+                    results[index] = ImportBlocksFromXml(items[index].Group, items[index].Item, options, swOptions);
+                    if (results[index].IsFailure)
+                    {
+                        failed.Add(index);
+                    }
+                    else if (pass > 1)
+                    {
+                        results[index].Messages.Add($"Imported on pass {pass} after files it depends on");
+                    }
+                }
+
+                if (failed.Count == pending.Count)
+                {
+                    break;
+                }
+                pending = failed;
+            }
+            return results;
+        }
+
+        /// <summary>
+        /// Import the PLC data types of a SimaticML file into the given type group. Failures are reported in the result instead of being thrown.
+        /// </summary>
+        public DocumentOperationResult ImportTypesFromXml(PlcTypeGroup typeGroup, XmlImportPlanItem item, ImportOptions options, SWImportOptions swOptions)
+        {
+            try
+            {
+                var imported = typeGroup.Types.Import(item.File, options, swOptions);
+                var result = XmlImportPlanner.CreateResult(item, DocumentOperationResult.StateSuccess, $"Imported into '{DisplayGroupPath(item.GroupPath)}'");
+                result.Types = imported.Select(type => new PlcTypeInfo { Name = type.Name, Namespace = type.Namespace }).ToList();
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to import PLC data types from {Path}", item.File.FullName);
+                return XmlImportPlanner.CreateResult(item, DocumentOperationResult.StateFailure, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Import the PLC data types of several SimaticML files, retrying failed files while another pass makes progress,
+        /// so types that use each other can come in any order. Results are returned in the order of <paramref name="items"/>.
+        /// </summary>
+        public IList<DocumentOperationResult> ImportTypesFromXmlFiles(IList<(PlcTypeGroup Group, XmlImportPlanItem Item)> items, ImportOptions options, SWImportOptions swOptions)
+        {
+            var results = new DocumentOperationResult[items.Count];
+            var pending = Enumerable.Range(0, items.Count).ToList();
+            for (var pass = 1; pending.Count > 0; pass++)
+            {
+                var failed = new List<int>();
+                foreach (var index in pending)
+                {
+                    results[index] = ImportTypesFromXml(items[index].Group, items[index].Item, options, swOptions);
+                    if (results[index].IsFailure)
+                    {
+                        failed.Add(index);
+                    }
+                    else if (pass > 1)
+                    {
+                        results[index].Messages.Add($"Imported on pass {pass} after files it depends on");
+                    }
+                }
+
+                if (failed.Count == pending.Count)
+                {
+                    break;
+                }
+                pending = failed;
+            }
+            return results;
+        }
+
+        /// <summary>
+        /// Creates the target directory and applies the overwrite rule. Returns an error message, or null when the export can go ahead.
+        /// </summary>
+        private string? PrepareXmlExportTarget(FileInfo targetFile, bool overwrite)
+        {
+            try
+            {
+                targetFile.Directory?.Create();
+                if (targetFile.Exists)
+                {
+                    if (!overwrite)
+                    {
+                        return $"File '{targetFile.FullName}' already exists. Pass overwrite=true to replace it";
+                    }
+
+                    targetFile.Delete();
+                    targetFile.Refresh();
+                }
+
+                return null;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                _logger.LogError(ex, "Cannot prepare export target {Path}", targetFile.FullName);
+                return $"Cannot write '{targetFile.FullName}': {ex.Message}";
+            }
+        }
+
+        private void AddExportHints(DocumentOperationResult result, string objectKind, IEngineeringObject exportedObject)
+        {
+            try
+            {
+                if (exportedObject.GetAttribute("IsConsistent") is bool isConsistent && !isConsistent)
+                {
+                    result.Messages.Add($"{objectKind} is inconsistent; compile it and export again");
+                }
+
+                if (exportedObject.GetAttribute("IsKnowHowProtected") is bool isKnowHowProtected && isKnowHowProtected)
+                {
+                    result.Messages.Add($"{objectKind} is know-how protected");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not add export hints for {Name}", result.Name);
+            }
+        }
+
+        private static DocumentOperationResult CreateXmlResult(string name, string groupPath, FileInfo file, string state, string? message)
+        {
+            var result = new DocumentOperationResult
+            {
+                Name = name,
+                State = state,
+                GroupPath = groupPath,
+                Files = new List<string> { file.FullName }
+            };
+            if (message != null)
+            {
+                result.Messages.Add(message);
+            }
+            return result;
+        }
+
+        private static string DisplayGroupPath(string groupPath)
+        {
+            return string.IsNullOrEmpty(groupPath) ? "(root)" : groupPath;
+        }
+
+        #endregion
+
         #region Loadable Files
 
         /// <summary>

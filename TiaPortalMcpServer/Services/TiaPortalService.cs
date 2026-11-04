@@ -11,6 +11,7 @@ using Siemens.Engineering.HW;
 using Siemens.Engineering.HW.Features;
 using Siemens.Engineering.SW;
 using Siemens.Engineering.SW.Blocks;
+using Siemens.Engineering.SW.Types;
 using Siemens.Engineering.SW.Units;
 using TiaPortalMcpServer.Models;
 
@@ -386,22 +387,7 @@ namespace TiaPortalMcpServer.Services
         /// </summary>
         public PlcBlock? FindBlock(PlcBlockGroup blockGroup, string blockName)
         {
-            var block = blockGroup.Blocks.Find(blockName);
-            if (block != null)
-            {
-                return block;
-            }
-
-            foreach (PlcBlockUserGroup userGroup in blockGroup.Groups)
-            {
-                block = FindBlock(userGroup, blockName);
-                if (block != null)
-                {
-                    return block;
-                }
-            }
-
-            return null;
+            return FindBlockWithGroupPath(blockGroup, blockName).Block;
         }
 
         /// <summary>
@@ -426,6 +412,158 @@ namespace TiaPortalMcpServer.Services
             }
 
             return current;
+        }
+
+        /// <summary>
+        /// Resolves a block group path relative to the root group, creating missing user groups on the way.
+        /// </summary>
+        public PlcBlockGroup GetOrCreateBlockGroup(PlcBlockGroup rootGroup, string? groupPath)
+        {
+            var current = rootGroup;
+            foreach (var segment in SplitGroupPath(groupPath))
+            {
+                current = (PlcBlockGroup?)current.Groups.Find(segment) ?? current.Groups.Create(segment);
+            }
+
+            return current;
+        }
+
+        /// <summary>
+        /// Returns every block in the group and its user subgroups that passes the name filter, with its group path
+        /// relative to <paramref name="blockGroup"/> (empty for blocks directly in it).
+        /// </summary>
+        public List<(PlcBlock Block, string GroupPath)> GetBlocksWithGroupPaths(PlcBlockGroup blockGroup, string regexName = "")
+        {
+            var blocks = new List<(PlcBlock Block, string GroupPath)>();
+            CollectBlocksWithGroupPaths(blockGroup, string.Empty, regexName, blocks);
+            return blocks;
+        }
+
+        /// <summary>
+        /// Finds a block by exact name in the group or its user subgroups, with its group path relative to <paramref name="blockGroup"/>.
+        /// </summary>
+        public (PlcBlock? Block, string GroupPath) FindBlockWithGroupPath(PlcBlockGroup blockGroup, string blockName, string groupPath = "")
+        {
+            var block = blockGroup.Blocks.Find(blockName);
+            if (block != null)
+            {
+                return (block, groupPath);
+            }
+
+            foreach (PlcBlockUserGroup userGroup in blockGroup.Groups)
+            {
+                var found = FindBlockWithGroupPath(userGroup, blockName, ExchangePaths.CombineGroupPath(groupPath, userGroup.Name));
+                if (found.Block != null)
+                {
+                    return found;
+                }
+            }
+
+            return (null, string.Empty);
+        }
+
+        /// <summary>
+        /// Resolves a PLC data type group path such as "Motion/Axis" relative to the root type group. Empty returns the root.
+        /// </summary>
+        public PlcTypeGroup? FindTypeGroup(PlcTypeGroup rootGroup, string? groupPath)
+        {
+            PlcTypeGroup? current = rootGroup;
+            foreach (var segment in SplitGroupPath(groupPath))
+            {
+                current = current.Groups.Find(segment);
+                if (current == null)
+                {
+                    return null;
+                }
+            }
+
+            return current;
+        }
+
+        /// <summary>
+        /// Resolves a PLC data type group path relative to the root type group, creating missing user groups on the way.
+        /// </summary>
+        public PlcTypeGroup GetOrCreateTypeGroup(PlcTypeGroup rootGroup, string? groupPath)
+        {
+            var current = rootGroup;
+            foreach (var segment in SplitGroupPath(groupPath))
+            {
+                current = (PlcTypeGroup?)current.Groups.Find(segment) ?? current.Groups.Create(segment);
+            }
+
+            return current;
+        }
+
+        /// <summary>
+        /// Returns every PLC data type in the group and its user subgroups that passes the name filter, with its group path.
+        /// </summary>
+        public List<(PlcType Type, string GroupPath)> GetTypesWithGroupPaths(PlcTypeGroup typeGroup, string regexName = "")
+        {
+            var types = new List<(PlcType Type, string GroupPath)>();
+            CollectTypesWithGroupPaths(typeGroup, string.Empty, regexName, types);
+            return types;
+        }
+
+        /// <summary>
+        /// Finds a PLC data type by exact name in the group or its user subgroups, with its group path.
+        /// </summary>
+        public (PlcType? Type, string GroupPath) FindTypeWithGroupPath(PlcTypeGroup typeGroup, string typeName, string groupPath = "")
+        {
+            var type = typeGroup.Types.Find(typeName);
+            if (type != null)
+            {
+                return (type, groupPath);
+            }
+
+            foreach (PlcTypeUserGroup userGroup in typeGroup.Groups)
+            {
+                var found = FindTypeWithGroupPath(userGroup, typeName, ExchangePaths.CombineGroupPath(groupPath, userGroup.Name));
+                if (found.Type != null)
+                {
+                    return found;
+                }
+            }
+
+            return (null, string.Empty);
+        }
+
+        private static IEnumerable<string> SplitGroupPath(string? groupPath)
+        {
+            return string.IsNullOrWhiteSpace(groupPath)
+                ? Enumerable.Empty<string>()
+                : groupPath!.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).Where(s => s.Length > 0);
+        }
+
+        private static void CollectBlocksWithGroupPaths(PlcBlockGroup blockGroup, string groupPath, string regexName, List<(PlcBlock Block, string GroupPath)> blocks)
+        {
+            foreach (PlcBlock block in blockGroup.Blocks)
+            {
+                if (NameFilter.IsMatch(block.Name, regexName))
+                {
+                    blocks.Add((block, groupPath));
+                }
+            }
+
+            foreach (PlcBlockUserGroup userGroup in blockGroup.Groups)
+            {
+                CollectBlocksWithGroupPaths(userGroup, ExchangePaths.CombineGroupPath(groupPath, userGroup.Name), regexName, blocks);
+            }
+        }
+
+        private static void CollectTypesWithGroupPaths(PlcTypeGroup typeGroup, string groupPath, string regexName, List<(PlcType Type, string GroupPath)> types)
+        {
+            foreach (PlcType type in typeGroup.Types)
+            {
+                if (NameFilter.IsMatch(type.Name, regexName))
+                {
+                    types.Add((type, groupPath));
+                }
+            }
+
+            foreach (PlcTypeUserGroup userGroup in typeGroup.Groups)
+            {
+                CollectTypesWithGroupPaths(userGroup, ExchangePaths.CombineGroupPath(groupPath, userGroup.Name), regexName, types);
+            }
         }
 
         private void GetRecursiveBlocksInUserGroup(PlcBlockUserGroup userGroup, List<PlcBlock> blocks, string regexName)

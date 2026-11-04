@@ -19,6 +19,7 @@ The server provides tool groups for:
 - Software Units: block, tag and software tools take an optional `unitName` to work inside a Software Unit instead of the device's main PLC software; `software_units_list` lists the available units
 - tag and tag-table management (`tags_create`, `tags_list`, `tags_tagtable_create`, `tags_tagtable_list`, `tags_tagtable_get`, `tags_tagtable_delete`, `tags_tagtable_export`, `tags_tagtable_open_editor`, `tags_group_create`, `tags_group_list`, `tags_group_find`, `tags_group_delete`, `tags_group_system_get`, `tags_constants_user_list`, `tags_constants_system_list`)
 - advanced block operations (external sources, ProDiag, UDTs, types, editor helpers — 19 tools in `BlocksTools`)
+- SimaticML XML exchange of blocks and PLC data types, with optional group-structure mirroring (`blocks_export_as_xml`, `blocks_export_all_as_xml`, `blocks_import_from_xml`, `blocks_import_all_from_xml`, `types_export_as_xml`, `types_export_all_as_xml`, `types_import_from_xml`, `types_import_all_from_xml`)
 - compilation (`compilation_project`, `compilation_software`)
 - file import and validation (`files_read_csv`, `files_read_excel`, `files_list_sheets`, `files_validate_format`, `files_get_info`)
 - HMI targets (`hmi_targets_list`, `hmi_targets_get`, `hmi_targets_validate`)

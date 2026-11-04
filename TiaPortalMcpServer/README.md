@@ -144,6 +144,18 @@ The block, tag and software tools below (and the advanced block tools) take an o
 - `blocks_fingerprints_get` - Get block fingerprints
 - `blocks_ob_priority_set` - Set OB priority
 
+### SimaticML XML Exchange
+Export and import blocks and PLC data types (UDTs) as SimaticML `.xml` files. These tools also take an optional `unitName`. Exports search all groups; with `preservePath=true` the TIA group structure is mirrored as directories (for example `exportPath/Motion/Axis/Axis_FB.xml`), and imports map subdirectories back to groups, creating missing ones. `importOption` (`None`, `Override`, `SkipInactiveCultures`, `ActivateInactiveCultures`) and `swImportOption` (`IgnoreStructuralChanges`, `IgnoreMissingReferencedObjects`, `IgnoreUnitAttributes`) take comma-separated names. Imports support `dryRun`, skip files that hold the other kind of object, retry files whose dependencies were not imported yet, and save the project after a successful import.
+
+- `blocks_export_as_xml` - Export one block as SimaticML
+- `blocks_export_all_as_xml` - Export all blocks, optionally filtered by name/regex
+- `blocks_import_from_xml` - Import the blocks of one SimaticML file into a block group
+- `blocks_import_all_from_xml` - Import the blocks of all SimaticML files in a directory
+- `types_export_as_xml` - Export one PLC data type as SimaticML
+- `types_export_all_as_xml` - Export all PLC data types, optionally filtered by name/regex
+- `types_import_from_xml` - Import the PLC data types of one SimaticML file into a type group
+- `types_import_all_from_xml` - Import the PLC data types of all SimaticML files in a directory
+
 ### Utility Operations
 - `utilities_get_project_info` - Get project information
 - `utilities_list_libraries` - List available libraries

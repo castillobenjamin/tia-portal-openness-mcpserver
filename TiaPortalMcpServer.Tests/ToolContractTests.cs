@@ -89,7 +89,8 @@ namespace TiaPortalMcpServer.Tests
         {
             typeof(TiaPortalMcpServer.BlocksTools),
             typeof(TiaPortalMcpServer.SoftwareTools),
-            typeof(TiaPortalMcpServer.TagTools)
+            typeof(TiaPortalMcpServer.TagTools),
+            typeof(TiaPortalMcpServer.XmlExchangeTools)
         };
 
         // Tools that take a device name but intentionally work on the whole PLC software
