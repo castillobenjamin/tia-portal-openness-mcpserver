@@ -164,6 +164,27 @@ namespace TiaPortalMcpServer.Services
         }
 
         /// <summary>
+        /// Saves the currently open project with all changes to a new, empty directory and returns the project path
+        /// TIA Portal reports afterwards.
+        /// </summary>
+        public string SaveCurrentProjectAs(string targetDirectory)
+        {
+            lock (_lock)
+            {
+                if (_currentProject == null)
+                {
+                    throw new InvalidOperationException("No project is currently open");
+                }
+
+                _logger.LogInformation("Saving project {ProjectName} as {TargetDirectory}", _currentProject.Name, targetDirectory);
+                _currentProject.SaveAs(new DirectoryInfo(targetDirectory));
+                _currentProjectPath = _currentProject.Path.FullName;
+                _logger.LogInformation("Project saved as {ProjectPath}", _currentProjectPath);
+                return _currentProjectPath;
+            }
+        }
+
+        /// <summary>
         /// Closes the currently open project
         /// </summary>
         public void CloseCurrentProject()
@@ -271,9 +292,8 @@ namespace TiaPortalMcpServer.Services
                     return null;
                 }
 
-                // For now, assume devicePath is just the device name
-                // Future: support hierarchical paths like "Group/Device"
-                return _currentProject.Devices.FirstOrDefault(d => d.Name == devicePath);
+                // Device name; searches top-level devices, ungrouped devices and device folders
+                return _portalService.FindDevice(_currentProject, devicePath);
             }
         }
 

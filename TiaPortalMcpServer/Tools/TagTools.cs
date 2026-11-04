@@ -43,36 +43,6 @@ namespace TiaPortalMcpServer
             _sessionManager = sessionManager;
         }
 
-        /// <summary>
-        /// Gets the PLC software instance for a specified device.
-        /// </summary>
-        /// <param name="deviceName">Name of the PLC device</param>
-        /// <returns>PlcSoftware instance or null if not found</returns>
-        private PlcSoftware? GetPlcSoftware(string deviceName)
-        {
-            try
-            {
-                var project = _sessionManager.CurrentProject;
-                if (project == null)
-                {
-                    return null;
-                }
-
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
-                {
-                    return null;
-                }
-
-                return _sessionManager.PortalService.GetPlcSoftware(device);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting PLC software for device '{DeviceName}'", deviceName);
-                return null;
-            }
-        }
-
         #region Tag Table Management Tools
 
         /// <summary>
@@ -84,6 +54,7 @@ namespace TiaPortalMcpServer
             [Description("Device name")] string? deviceName,
             [Description("Tag table name")] string? tagTableName,
             [Description("Optional parent group name (empty for system group)")] string groupName = "",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "",
             CancellationToken cancellationToken = default)
         {
             _logger.LogInformation(
@@ -189,21 +160,20 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(
                         ToolResponse<TagOperationResult?>.CreateError(ErrorCodes.InvalidParameter, "deviceName is required"));
                 }
-                var plcSoftware = GetPlcSoftware(resolvedDeviceName);
-                if (plcSoftware == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, resolvedDeviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(
-                        ToolResponse<TagOperationResult?>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{resolvedDeviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<TagOperationResult?>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 PlcTagTable? newTable = null;
                 if (string.IsNullOrEmpty(groupName))
                 {
-                    newTable = plcSoftware.TagTableGroup.TagTables.Create(tagTableName);
+                    newTable = plcScope.TagTableGroup.TagTables.Create(tagTableName);
                 }
                 else
                 {
-                    var group = plcSoftware.TagTableGroup.Groups.Find(groupName);
+                    var group = plcScope.TagTableGroup.Groups.Find(groupName);
                     if (group == null)
                     {
                         return McpToolResults.From(
@@ -250,7 +220,8 @@ namespace TiaPortalMcpServer
         public CallToolResult tags_tagtable_list(
             [Description("Device name")] string deviceName,
             [Description("Optional group name (empty for system group)")] string groupName = "",
-            [Description("Include tag counts")] bool includeCounts = true)
+            [Description("Include tag counts")] bool includeCounts = true,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation(
                 "tags_tagtable_list called with deviceName='{DeviceName}', groupName='{GroupName}', includeCounts={IncludeCounts}",
@@ -265,11 +236,10 @@ namespace TiaPortalMcpServer
                         ToolResponse<List<TagTableInfo>?>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var plcSoftware = GetPlcSoftware(deviceName);
-                if (plcSoftware == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(
-                        ToolResponse<List<TagTableInfo>?>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<List<TagTableInfo>?>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 var tagTables = new List<TagTableInfo>();
@@ -277,11 +247,11 @@ namespace TiaPortalMcpServer
 
                 if (string.IsNullOrEmpty(groupName))
                 {
-                    tableComposition = plcSoftware.TagTableGroup.TagTables;
+                    tableComposition = plcScope.TagTableGroup.TagTables;
                 }
                 else
                 {
-                    var group = plcSoftware.TagTableGroup.Groups.Find(groupName);
+                    var group = plcScope.TagTableGroup.Groups.Find(groupName);
                     if (group == null)
                     {
                         return McpToolResults.From(
@@ -326,7 +296,8 @@ namespace TiaPortalMcpServer
         public CallToolResult tags_tagtable_get(
             [Description("Device name")] string deviceName,
             [Description("Tag table name")] string tagTableName,
-            [Description("Optional group name (empty for system group)")] string groupName = "")
+            [Description("Optional group name (empty for system group)")] string groupName = "",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation(
                 "tags_tagtable_get called with deviceName='{DeviceName}', tagTableName='{TagTableName}', groupName='{GroupName}'",
@@ -347,21 +318,20 @@ namespace TiaPortalMcpServer
                         ToolResponse<TagTableInfo?>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var plcSoftware = GetPlcSoftware(deviceName);
-                if (plcSoftware == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(
-                        ToolResponse<TagTableInfo?>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<TagTableInfo?>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 PlcTagTable? table = null;
                 if (string.IsNullOrEmpty(groupName))
                 {
-                    table = plcSoftware.TagTableGroup.TagTables.Find(tagTableName);
+                    table = plcScope.TagTableGroup.TagTables.Find(tagTableName);
                 }
                 else
                 {
-                    var group = plcSoftware.TagTableGroup.Groups.Find(groupName);
+                    var group = plcScope.TagTableGroup.Groups.Find(groupName);
                     if (group == null)
                     {
                         return McpToolResults.From(
@@ -405,7 +375,8 @@ namespace TiaPortalMcpServer
         public CallToolResult tags_tagtable_delete(
             [Description("Device name")] string deviceName,
             [Description("Tag table name")] string tagTableName,
-            [Description("Optional group name (empty for system group)")] string groupName = "")
+            [Description("Optional group name (empty for system group)")] string groupName = "",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation(
                 "tags_tagtable_delete called with deviceName='{DeviceName}', tagTableName='{TagTableName}', groupName='{GroupName}'",
@@ -426,21 +397,20 @@ namespace TiaPortalMcpServer
                         ToolResponse<TagOperationResult?>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var plcSoftware = GetPlcSoftware(deviceName);
-                if (plcSoftware == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(
-                        ToolResponse<TagOperationResult?>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<TagOperationResult?>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 PlcTagTable? table = null;
                 if (string.IsNullOrEmpty(groupName))
                 {
-                    table = plcSoftware.TagTableGroup.TagTables.Find(tagTableName);
+                    table = plcScope.TagTableGroup.TagTables.Find(tagTableName);
                 }
                 else
                 {
-                    var group = plcSoftware.TagTableGroup.Groups.Find(groupName);
+                    var group = plcScope.TagTableGroup.Groups.Find(groupName);
                     if (group == null)
                     {
                         return McpToolResults.From(
@@ -502,7 +472,8 @@ namespace TiaPortalMcpServer
             [Description("Device name")] string deviceName,
             [Description("Tag table name")] string tagTableName,
             [Description("Export file path (absolute or relative)")] string exportPath,
-            [Description("Optional group name (empty for system group)")] string groupName = "")
+            [Description("Optional group name (empty for system group)")] string groupName = "",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation(
                 "tags_tagtable_export called with deviceName='{DeviceName}', tagTableName='{TagTableName}', exportPath='{ExportPath}'",
@@ -529,21 +500,20 @@ namespace TiaPortalMcpServer
                         ToolResponse<TagOperationResult?>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var plcSoftware = GetPlcSoftware(deviceName);
-                if (plcSoftware == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(
-                        ToolResponse<TagOperationResult?>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<TagOperationResult?>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 PlcTagTable? table = null;
                 if (string.IsNullOrEmpty(groupName))
                 {
-                    table = plcSoftware.TagTableGroup.TagTables.Find(tagTableName);
+                    table = plcScope.TagTableGroup.TagTables.Find(tagTableName);
                 }
                 else
                 {
-                    var group = plcSoftware.TagTableGroup.Groups.Find(groupName);
+                    var group = plcScope.TagTableGroup.Groups.Find(groupName);
                     if (group == null)
                     {
                         return McpToolResults.From(
@@ -597,7 +567,8 @@ namespace TiaPortalMcpServer
         public CallToolResult tags_tagtable_open_editor(
             [Description("Device name")] string deviceName,
             [Description("Tag table name")] string tagTableName,
-            [Description("Optional group name (empty for system group)")] string groupName = "")
+            [Description("Optional group name (empty for system group)")] string groupName = "",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation(
                 "tags_tagtable_open_editor called with deviceName='{DeviceName}', tagTableName='{TagTableName}'",
@@ -618,21 +589,20 @@ namespace TiaPortalMcpServer
                         ToolResponse<TagOperationResult?>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var plcSoftware = GetPlcSoftware(deviceName);
-                if (plcSoftware == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(
-                        ToolResponse<TagOperationResult?>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<TagOperationResult?>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 PlcTagTable? table = null;
                 if (string.IsNullOrEmpty(groupName))
                 {
-                    table = plcSoftware.TagTableGroup.TagTables.Find(tagTableName);
+                    table = plcScope.TagTableGroup.TagTables.Find(tagTableName);
                 }
                 else
                 {
-                    var group = plcSoftware.TagTableGroup.Groups.Find(groupName);
+                    var group = plcScope.TagTableGroup.Groups.Find(groupName);
                     if (group == null)
                     {
                         return McpToolResults.From(
@@ -678,7 +648,8 @@ namespace TiaPortalMcpServer
         /// </summary>
         [McpServerTool(ReadOnly = true, Idempotent = true, OpenWorld = true), Description("Retrieve system group information for PLC tags including top-level tag tables and immediate subgroups. Returns tag group info with table names and subgroup names. Prerequisites: Project must be open, device must exist. Use this as starting point to understand project tag organization before navigating user-defined groups or tag tables.")]
         public CallToolResult tags_group_system_get(
-            [Description("Device name")] string deviceName)
+            [Description("Device name")] string deviceName,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("tags_group_system_get called with deviceName='{DeviceName}'", deviceName);
 
@@ -691,14 +662,13 @@ namespace TiaPortalMcpServer
                         ToolResponse<TagGroupInfo?>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var plcSoftware = GetPlcSoftware(deviceName);
-                if (plcSoftware == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(
-                        ToolResponse<TagGroupInfo?>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<TagGroupInfo?>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var systemGroup = plcSoftware.TagTableGroup;
+                var systemGroup = plcScope.TagTableGroup;
                 var subGroupNames = systemGroup.Groups.Select(g => g.Name).ToArray();
                 var tagTableNames = systemGroup.TagTables.Select(t => t.Name).ToArray();
 
@@ -731,7 +701,8 @@ namespace TiaPortalMcpServer
         public CallToolResult tags_group_list(
             [Description("Device name")] string deviceName,
             [Description("Optional parent group name (empty for top-level)")] string parentGroupName = "",
-            [Description("Include sub-groups recursively")] bool recursive = false)
+            [Description("Include sub-groups recursively")] bool recursive = false,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation(
                 "tags_group_list called with deviceName='{DeviceName}', parentGroupName='{ParentGroupName}', recursive={Recursive}",
@@ -746,11 +717,10 @@ namespace TiaPortalMcpServer
                         ToolResponse<List<TagGroupInfo>?>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var plcSoftware = GetPlcSoftware(deviceName);
-                if (plcSoftware == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(
-                        ToolResponse<List<TagGroupInfo>?>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<List<TagGroupInfo>?>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 var groups = new List<TagGroupInfo>();
@@ -758,11 +728,11 @@ namespace TiaPortalMcpServer
 
                 if (string.IsNullOrEmpty(parentGroupName))
                 {
-                    groupComposition = plcSoftware.TagTableGroup.Groups;
+                    groupComposition = plcScope.TagTableGroup.Groups;
                 }
                 else
                 {
-                    var parentGroup = plcSoftware.TagTableGroup.Groups.Find(parentGroupName);
+                    var parentGroup = plcScope.TagTableGroup.Groups.Find(parentGroupName);
                     if (parentGroup == null)
                     {
                         return McpToolResults.From(
@@ -819,7 +789,8 @@ namespace TiaPortalMcpServer
         public CallToolResult tags_group_create(
             [Description("Device name")] string deviceName,
             [Description("Group name")] string groupName,
-            [Description("Optional parent group name (empty for top-level)")] string parentGroupName = "")
+            [Description("Optional parent group name (empty for top-level)")] string parentGroupName = "",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation(
                 "tags_group_create called with deviceName='{DeviceName}', groupName='{GroupName}', parentGroupName='{ParentGroupName}'",
@@ -840,21 +811,20 @@ namespace TiaPortalMcpServer
                         ToolResponse<TagOperationResult?>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var plcSoftware = GetPlcSoftware(deviceName);
-                if (plcSoftware == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(
-                        ToolResponse<TagOperationResult?>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<TagOperationResult?>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 PlcTagTableUserGroup? newGroup = null;
                 if (string.IsNullOrEmpty(parentGroupName))
                 {
-                    newGroup = plcSoftware.TagTableGroup.Groups.Create(groupName);
+                    newGroup = plcScope.TagTableGroup.Groups.Create(groupName);
                 }
                 else
                 {
-                    var parentGroup = plcSoftware.TagTableGroup.Groups.Find(parentGroupName);
+                    var parentGroup = plcScope.TagTableGroup.Groups.Find(parentGroupName);
                     if (parentGroup == null)
                     {
                         return McpToolResults.From(
@@ -901,7 +871,8 @@ namespace TiaPortalMcpServer
         public CallToolResult tags_group_find(
             [Description("Device name")] string deviceName,
             [Description("Group name to find")] string groupName,
-            [Description("Optional parent group name (empty for top-level)")] string parentGroupName = "")
+            [Description("Optional parent group name (empty for top-level)")] string parentGroupName = "",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation(
                 "tags_group_find called with deviceName='{DeviceName}', groupName='{GroupName}', parentGroupName='{ParentGroupName}'",
@@ -922,21 +893,20 @@ namespace TiaPortalMcpServer
                         ToolResponse<TagGroupInfo?>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var plcSoftware = GetPlcSoftware(deviceName);
-                if (plcSoftware == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(
-                        ToolResponse<TagGroupInfo?>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<TagGroupInfo?>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 PlcTagTableUserGroup? group = null;
                 if (string.IsNullOrEmpty(parentGroupName))
                 {
-                    group = plcSoftware.TagTableGroup.Groups.Find(groupName);
+                    group = plcScope.TagTableGroup.Groups.Find(groupName);
                 }
                 else
                 {
-                    var parentGroup = plcSoftware.TagTableGroup.Groups.Find(parentGroupName);
+                    var parentGroup = plcScope.TagTableGroup.Groups.Find(parentGroupName);
                     if (parentGroup == null)
                     {
                         return McpToolResults.From(
@@ -982,7 +952,8 @@ namespace TiaPortalMcpServer
         public CallToolResult tags_group_delete(
             [Description("Device name")] string deviceName,
             [Description("Group name to delete")] string groupName,
-            [Description("Optional parent group name (empty for top-level)")] string parentGroupName = "")
+            [Description("Optional parent group name (empty for top-level)")] string parentGroupName = "",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation(
                 "tags_group_delete called with deviceName='{DeviceName}', groupName='{GroupName}', parentGroupName='{ParentGroupName}'",
@@ -1003,21 +974,20 @@ namespace TiaPortalMcpServer
                         ToolResponse<TagOperationResult?>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var plcSoftware = GetPlcSoftware(deviceName);
-                if (plcSoftware == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(
-                        ToolResponse<TagOperationResult?>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<TagOperationResult?>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 PlcTagTableUserGroup? group = null;
                 if (string.IsNullOrEmpty(parentGroupName))
                 {
-                    group = plcSoftware.TagTableGroup.Groups.Find(groupName);
+                    group = plcScope.TagTableGroup.Groups.Find(groupName);
                 }
                 else
                 {
-                    var parentGroup = plcSoftware.TagTableGroup.Groups.Find(parentGroupName);
+                    var parentGroup = plcScope.TagTableGroup.Groups.Find(parentGroupName);
                     if (parentGroup == null)
                     {
                         return McpToolResults.From(
@@ -1076,7 +1046,8 @@ namespace TiaPortalMcpServer
         public CallToolResult tags_list(
             [Description("Device name")] string deviceName,
             [Description("Tag table name")] string tagTableName,
-            [Description("Optional group name (empty for system group)")] string groupName = "")
+            [Description("Optional group name (empty for system group)")] string groupName = "",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation(
                 "tags_list called with deviceName='{DeviceName}', tagTableName='{TagTableName}', groupName='{GroupName}'",
@@ -1097,21 +1068,20 @@ namespace TiaPortalMcpServer
                         ToolResponse<List<TagInfo>?>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var plcSoftware = GetPlcSoftware(deviceName);
-                if (plcSoftware == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(
-                        ToolResponse<List<TagInfo>?>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<List<TagInfo>?>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 PlcTagTable? table = null;
                 if (string.IsNullOrEmpty(groupName))
                 {
-                    table = plcSoftware.TagTableGroup.TagTables.Find(tagTableName);
+                    table = plcScope.TagTableGroup.TagTables.Find(tagTableName);
                 }
                 else
                 {
-                    var group = plcSoftware.TagTableGroup.Groups.Find(groupName);
+                    var group = plcScope.TagTableGroup.Groups.Find(groupName);
                     if (group == null)
                     {
                         return McpToolResults.From(
@@ -1157,7 +1127,8 @@ namespace TiaPortalMcpServer
         public CallToolResult tags_constants_user_list(
             [Description("Device name")] string deviceName,
             [Description("Tag table name")] string tagTableName,
-            [Description("Optional group name (empty for system group)")] string groupName = "")
+            [Description("Optional group name (empty for system group)")] string groupName = "",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation(
                 "tags_constants_user_list called with deviceName='{DeviceName}', tagTableName='{TagTableName}', groupName='{GroupName}'",
@@ -1178,21 +1149,20 @@ namespace TiaPortalMcpServer
                         ToolResponse<List<ConstantInfo>?>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var plcSoftware = GetPlcSoftware(deviceName);
-                if (plcSoftware == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(
-                        ToolResponse<List<ConstantInfo>?>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<List<ConstantInfo>?>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 PlcTagTable? table = null;
                 if (string.IsNullOrEmpty(groupName))
                 {
-                    table = plcSoftware.TagTableGroup.TagTables.Find(tagTableName);
+                    table = plcScope.TagTableGroup.TagTables.Find(tagTableName);
                 }
                 else
                 {
-                    var group = plcSoftware.TagTableGroup.Groups.Find(groupName);
+                    var group = plcScope.TagTableGroup.Groups.Find(groupName);
                     if (group == null)
                     {
                         return McpToolResults.From(
@@ -1238,7 +1208,8 @@ namespace TiaPortalMcpServer
         public CallToolResult tags_constants_system_list(
             [Description("Device name")] string deviceName,
             [Description("Tag table name")] string tagTableName,
-            [Description("Optional group name (empty for system group)")] string groupName = "")
+            [Description("Optional group name (empty for system group)")] string groupName = "",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation(
                 "tags_constants_system_list called with deviceName='{DeviceName}', tagTableName='{TagTableName}', groupName='{GroupName}'",
@@ -1259,21 +1230,20 @@ namespace TiaPortalMcpServer
                         ToolResponse<List<ConstantInfo>?>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var plcSoftware = GetPlcSoftware(deviceName);
-                if (plcSoftware == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(
-                        ToolResponse<List<ConstantInfo>?>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<List<ConstantInfo>?>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 PlcTagTable? table = null;
                 if (string.IsNullOrEmpty(groupName))
                 {
-                    table = plcSoftware.TagTableGroup.TagTables.Find(tagTableName);
+                    table = plcScope.TagTableGroup.TagTables.Find(tagTableName);
                 }
                 else
                 {
-                    var group = plcSoftware.TagTableGroup.Groups.Find(groupName);
+                    var group = plcScope.TagTableGroup.Groups.Find(groupName);
                     if (group == null)
                     {
                         return McpToolResults.From(
@@ -1322,6 +1292,7 @@ namespace TiaPortalMcpServer
             [Description("Logical address (e.g., %I0.0, %Q0.0, %M0.0)")] string logicalAddress = "",
             [Description("Optional group name (empty for system group)")] string groupName = "",
             [Description("Optional comment")] string comment = "",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "",
             CancellationToken cancellationToken = default)
         {
             var ensureProjectResult = await EnsureProjectOpenAsync(server, cancellationToken);
@@ -1466,17 +1437,17 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(
                         ToolResponse<TagOperationResult?>.CreateError(ErrorCodes.InvalidParameter, "deviceName is required"));
 
-                var plcSoftware = GetPlcSoftware(resolvedDeviceName);
-                if (plcSoftware == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, resolvedDeviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                     return McpToolResults.From(
-                        ToolResponse<TagOperationResult?>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{resolvedDeviceName}' not found"));
+                        ToolResponse<TagOperationResult?>.CreateError(scopeErrorCode, scopeError));
 
                 PlcTagTable? table = null;
                 if (string.IsNullOrEmpty(groupName))
-                    table = plcSoftware.TagTableGroup.TagTables.Find(tagTableName);
+                    table = plcScope.TagTableGroup.TagTables.Find(tagTableName);
                 else
                 {
-                    var group = plcSoftware.TagTableGroup.Groups.Find(groupName);
+                    var group = plcScope.TagTableGroup.Groups.Find(groupName);
                     if (group == null)
                         return McpToolResults.From(
                             ToolResponse<TagOperationResult?>.CreateError(ErrorCodes.TagGroupNotFound, $"Group '{groupName}' not found"));

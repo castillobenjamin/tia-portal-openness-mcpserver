@@ -11,6 +11,9 @@ using Siemens.Engineering.HW;
 using Siemens.Engineering.HW.Features;
 using Siemens.Engineering.SW;
 using Siemens.Engineering.SW.Blocks;
+using Siemens.Engineering.SW.Types;
+using Siemens.Engineering.SW.Units;
+using TiaPortalMcpServer.Models;
 
 namespace TiaPortalMcpServer.Services
 {
@@ -23,9 +26,6 @@ namespace TiaPortalMcpServer.Services
         private TiaPortal? _tiaPortal;
         private readonly object _lock = new object();
         private bool _disposed = false;
-
-        // closing parantheses for regex characters ommitted, because they are not relevant for regex detection
-        private readonly char[] _regexChars = ['.', '^', '$', '*', '+', '?', '(', '[', '{', '\\', '|'];
 
         public TiaPortalService(ILogger<TiaPortalService> logger)
         {
@@ -263,49 +263,233 @@ namespace TiaPortalMcpServer.Services
             return null;
         }
 
-        public List<PlcBlock> GetBlocks(Project project, string softwarePath, string regexName = "")
+        /// <summary>
+        /// Returns all blocks in the scope's block group and its user subgroups that pass the name filter.
+        /// </summary>
+        public List<PlcBlock> GetBlocks(PlcScope scope, string regexName = "")
         {
-            if (project == null)
-            {
-                return new List<PlcBlock>();
-            }
-
             var blocks = new List<PlcBlock>();
-            var device = GetDevice(project, softwarePath);
-            if (device != null)
-            {
-                var plcSoftware = GetPlcSoftware(device);
-                if (plcSoftware != null)
-                {
-                    var blockGroup = plcSoftware.BlockGroup;
-                    if (blockGroup != null)
-                    {
-                        GetRecursiveBlocks(blockGroup, blocks, regexName);
-                    }
-                }
-            }
-
+            GetRecursiveBlocks(scope.BlockGroup, blocks, regexName);
             return blocks;
         }
 
-        private Device? GetDevice(Project project, string devicePath)
+        /// <summary>
+        /// Resolves the PLC software a tool works on: the device's main PLC software, or the named Software Unit
+        /// when <paramref name="unitName"/> is not empty. On failure returns null and sets an error code and message.
+        /// </summary>
+        public PlcScope? ResolvePlcScope(Project project, string deviceName, string? unitName, out string errorCode, out string errorMessage)
+        {
+            errorCode = string.Empty;
+            errorMessage = string.Empty;
+
+            var device = FindDevice(project, deviceName);
+            if (device == null)
+            {
+                errorCode = ErrorCodes.DeviceNotFound;
+                errorMessage = $"Device '{deviceName}' not found";
+                return null;
+            }
+
+            var plcSoftware = GetPlcSoftware(device);
+            if (plcSoftware == null)
+            {
+                errorCode = ErrorCodes.TiaError;
+                errorMessage = $"Device '{deviceName}' does not have PLC software";
+                return null;
+            }
+
+            if (string.IsNullOrWhiteSpace(unitName))
+            {
+                return new PlcScope(deviceName, plcSoftware, null);
+            }
+
+            var unit = FindSoftwareUnit(plcSoftware, unitName!.Trim());
+            if (unit == null)
+            {
+                var available = (GetSoftwareUnits(plcSoftware) ?? new List<PlcUnitBase>()).Select(u => u.Name).ToList();
+                errorCode = ErrorCodes.SoftwareUnitNotFound;
+                errorMessage = $"Software Unit '{unitName}' not found on device '{deviceName}'. Available units: " +
+                    (available.Count > 0 ? string.Join(", ", available) : "none");
+                return null;
+            }
+
+            return new PlcScope(deviceName, plcSoftware, unit);
+        }
+
+        /// <summary>
+        /// Lists the standard and safety Software Units of the PLC software, or returns null when the CPU does not support Software Units.
+        /// </summary>
+        public IList<PlcUnitBase>? GetSoftwareUnits(PlcSoftware plcSoftware)
+        {
+            var unitGroup = plcSoftware.GetService<PlcUnitProvider>()?.UnitGroup;
+            if (unitGroup == null)
+            {
+                return null;
+            }
+
+            var units = new List<PlcUnitBase>();
+            foreach (PlcUnit unit in unitGroup.Units)
+            {
+                units.Add(unit);
+            }
+
+            foreach (PlcSafetyUnit safetyUnit in unitGroup.SafetyUnits)
+            {
+                units.Add(safetyUnit);
+            }
+
+            return units;
+        }
+
+        /// <summary>
+        /// Finds a standard or safety Software Unit by exact name.
+        /// </summary>
+        public PlcUnitBase? FindSoftwareUnit(PlcSoftware plcSoftware, string unitName)
+        {
+            var unitGroup = plcSoftware.GetService<PlcUnitProvider>()?.UnitGroup;
+            if (unitGroup == null)
+            {
+                return null;
+            }
+
+            return (PlcUnitBase?)unitGroup.Units.Find(unitName) ?? unitGroup.SafetyUnits.Find(unitName);
+        }
+
+        /// <summary>
+        /// Finds a device by exact name at the top level, among the ungrouped devices or in any device folder.
+        /// </summary>
+        public Device? FindDevice(Project project, string deviceName)
         {
             if (project == null)
             {
                 return null;
             }
 
-            // Simplified: assume devicePath is device name
-            return project.Devices.FirstOrDefault(d => d.Name == devicePath);
+            foreach (var entry in GetDevicesWithGroupPaths(project))
+            {
+                if (entry.Device.Name == deviceName)
+                {
+                    return entry.Device;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Every device of the project with the device folder it is in ("Line 1/Cell A"; empty at the top level).
+        /// Covers top-level devices, ungrouped devices and devices in user folders.
+        /// </summary>
+        public List<(Device Device, string GroupPath)> GetDevicesWithGroupPaths(Project project)
+        {
+            var devices = new List<(Device Device, string GroupPath)>();
+            var seen = new HashSet<Device>();
+
+            foreach (Device device in project.Devices)
+            {
+                if (seen.Add(device))
+                {
+                    devices.Add((device, string.Empty));
+                }
+            }
+
+            var ungrouped = project.UngroupedDevicesGroup;
+            if (ungrouped != null)
+            {
+                foreach (Device device in ungrouped.Devices)
+                {
+                    if (seen.Add(device))
+                    {
+                        devices.Add((device, ungrouped.Name));
+                    }
+                }
+            }
+
+            foreach (DeviceUserGroup group in project.DeviceGroups)
+            {
+                CollectDevicesInGroup(group, group.Name, devices, seen);
+            }
+
+            return devices;
+        }
+
+        /// <summary>
+        /// Every PLC software in the project, followed by its standard and safety Software Units.
+        /// </summary>
+        public List<PlcSoftwarePathInfo> GetPlcSoftwarePaths(Project project)
+        {
+            var paths = new List<PlcSoftwarePathInfo>();
+            foreach (var entry in GetDevicesWithGroupPaths(project))
+            {
+                var plcSoftware = GetPlcSoftware(entry.Device);
+                if (plcSoftware == null)
+                {
+                    continue;
+                }
+
+                var units = GetSoftwareUnits(plcSoftware);
+                paths.Add(new PlcSoftwarePathInfo
+                {
+                    Path = PlcSoftwarePathInfo.FormatPath(entry.Device.Name, null),
+                    DeviceName = entry.Device.Name,
+                    Kind = PlcSoftwarePathInfo.KindPlcSoftware,
+                    SoftwareName = plcSoftware.Name,
+                    DeviceGroupPath = entry.GroupPath,
+                    UnitsSupported = units != null
+                });
+
+                if (units != null)
+                {
+                    paths.AddRange(GetUnitPaths(entry.Device.Name, entry.GroupPath, plcSoftware, units));
+                }
+            }
+
+            return paths;
+        }
+
+        /// <summary>
+        /// Path entries for the given Software Units of a device's PLC software.
+        /// </summary>
+        public List<PlcSoftwarePathInfo> GetUnitPaths(string deviceName, string deviceGroupPath, PlcSoftware plcSoftware, IEnumerable<PlcUnitBase> units)
+        {
+            var paths = new List<PlcSoftwarePathInfo>();
+            foreach (var unit in units)
+            {
+                paths.Add(new PlcSoftwarePathInfo
+                {
+                    Path = PlcSoftwarePathInfo.FormatPath(deviceName, unit.Name),
+                    DeviceName = deviceName,
+                    UnitName = unit.Name,
+                    Kind = unit is PlcSafetyUnit ? PlcSoftwarePathInfo.KindSafetyUnit : PlcSoftwarePathInfo.KindSoftwareUnit,
+                    SoftwareName = plcSoftware.Name,
+                    DeviceGroupPath = deviceGroupPath
+                });
+            }
+
+            return paths;
+        }
+
+        private static void CollectDevicesInGroup(DeviceUserGroup group, string groupPath, List<(Device Device, string GroupPath)> devices, HashSet<Device> seen)
+        {
+            foreach (Device device in group.Devices)
+            {
+                if (seen.Add(device))
+                {
+                    devices.Add((device, groupPath));
+                }
+            }
+
+            foreach (DeviceUserGroup child in group.Groups)
+            {
+                CollectDevicesInGroup(child, ExchangePaths.CombineGroupPath(groupPath, child.Name), devices, seen);
+            }
         }
 
         private void GetRecursiveBlocks(PlcBlockGroup blockGroup, List<PlcBlock> blocks, string regexName)
         {
             foreach (PlcBlock block in blockGroup.Blocks)
             {
-                if (string.IsNullOrEmpty(regexName) ||
-                    (regexName.IndexOfAny(_regexChars) >= 0 && Regex.IsMatch(block.Name, regexName, RegexOptions.IgnoreCase)) ||
-                    block.Name.Contains(regexName, StringComparison.OrdinalIgnoreCase))
+                if (NameFilter.IsMatch(block.Name, regexName))
                 {
                     blocks.Add(block);
                 }
@@ -317,13 +501,195 @@ namespace TiaPortalMcpServer.Services
             }
         }
 
+        /// <summary>
+        /// Finds a block by exact name in the given group or any of its user subgroups.
+        /// </summary>
+        public PlcBlock? FindBlock(PlcBlockGroup blockGroup, string blockName)
+        {
+            return FindBlockWithGroupPath(blockGroup, blockName).Block;
+        }
+
+        /// <summary>
+        /// Resolves a block group path such as "Motion/Axis" relative to the given root group.
+        /// An empty path returns the root group; a single segment is a direct child of the root.
+        /// </summary>
+        public PlcBlockGroup? FindBlockGroup(PlcBlockGroup rootGroup, string? groupPath)
+        {
+            if (string.IsNullOrWhiteSpace(groupPath))
+            {
+                return rootGroup;
+            }
+
+            PlcBlockGroup? current = rootGroup;
+            foreach (var segment in groupPath!.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                current = current.Groups.Find(segment.Trim());
+                if (current == null)
+                {
+                    return null;
+                }
+            }
+
+            return current;
+        }
+
+        /// <summary>
+        /// Resolves a block group path relative to the root group, creating missing user groups on the way.
+        /// </summary>
+        public PlcBlockGroup GetOrCreateBlockGroup(PlcBlockGroup rootGroup, string? groupPath)
+        {
+            var current = rootGroup;
+            foreach (var segment in SplitGroupPath(groupPath))
+            {
+                current = (PlcBlockGroup?)current.Groups.Find(segment) ?? current.Groups.Create(segment);
+            }
+
+            return current;
+        }
+
+        /// <summary>
+        /// Returns every block in the group and its user subgroups that passes the name filter, with its group path
+        /// relative to <paramref name="blockGroup"/> (empty for blocks directly in it).
+        /// </summary>
+        public List<(PlcBlock Block, string GroupPath)> GetBlocksWithGroupPaths(PlcBlockGroup blockGroup, string regexName = "")
+        {
+            var blocks = new List<(PlcBlock Block, string GroupPath)>();
+            CollectBlocksWithGroupPaths(blockGroup, string.Empty, regexName, blocks);
+            return blocks;
+        }
+
+        /// <summary>
+        /// Finds a block by exact name in the group or its user subgroups, with its group path relative to <paramref name="blockGroup"/>.
+        /// </summary>
+        public (PlcBlock? Block, string GroupPath) FindBlockWithGroupPath(PlcBlockGroup blockGroup, string blockName, string groupPath = "")
+        {
+            var block = blockGroup.Blocks.Find(blockName);
+            if (block != null)
+            {
+                return (block, groupPath);
+            }
+
+            foreach (PlcBlockUserGroup userGroup in blockGroup.Groups)
+            {
+                var found = FindBlockWithGroupPath(userGroup, blockName, ExchangePaths.CombineGroupPath(groupPath, userGroup.Name));
+                if (found.Block != null)
+                {
+                    return found;
+                }
+            }
+
+            return (null, string.Empty);
+        }
+
+        /// <summary>
+        /// Resolves a PLC data type group path such as "Motion/Axis" relative to the root type group. Empty returns the root.
+        /// </summary>
+        public PlcTypeGroup? FindTypeGroup(PlcTypeGroup rootGroup, string? groupPath)
+        {
+            PlcTypeGroup? current = rootGroup;
+            foreach (var segment in SplitGroupPath(groupPath))
+            {
+                current = current.Groups.Find(segment);
+                if (current == null)
+                {
+                    return null;
+                }
+            }
+
+            return current;
+        }
+
+        /// <summary>
+        /// Resolves a PLC data type group path relative to the root type group, creating missing user groups on the way.
+        /// </summary>
+        public PlcTypeGroup GetOrCreateTypeGroup(PlcTypeGroup rootGroup, string? groupPath)
+        {
+            var current = rootGroup;
+            foreach (var segment in SplitGroupPath(groupPath))
+            {
+                current = (PlcTypeGroup?)current.Groups.Find(segment) ?? current.Groups.Create(segment);
+            }
+
+            return current;
+        }
+
+        /// <summary>
+        /// Returns every PLC data type in the group and its user subgroups that passes the name filter, with its group path.
+        /// </summary>
+        public List<(PlcType Type, string GroupPath)> GetTypesWithGroupPaths(PlcTypeGroup typeGroup, string regexName = "")
+        {
+            var types = new List<(PlcType Type, string GroupPath)>();
+            CollectTypesWithGroupPaths(typeGroup, string.Empty, regexName, types);
+            return types;
+        }
+
+        /// <summary>
+        /// Finds a PLC data type by exact name in the group or its user subgroups, with its group path.
+        /// </summary>
+        public (PlcType? Type, string GroupPath) FindTypeWithGroupPath(PlcTypeGroup typeGroup, string typeName, string groupPath = "")
+        {
+            var type = typeGroup.Types.Find(typeName);
+            if (type != null)
+            {
+                return (type, groupPath);
+            }
+
+            foreach (PlcTypeUserGroup userGroup in typeGroup.Groups)
+            {
+                var found = FindTypeWithGroupPath(userGroup, typeName, ExchangePaths.CombineGroupPath(groupPath, userGroup.Name));
+                if (found.Type != null)
+                {
+                    return found;
+                }
+            }
+
+            return (null, string.Empty);
+        }
+
+        private static IEnumerable<string> SplitGroupPath(string? groupPath)
+        {
+            return string.IsNullOrWhiteSpace(groupPath)
+                ? Enumerable.Empty<string>()
+                : groupPath!.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).Where(s => s.Length > 0);
+        }
+
+        private static void CollectBlocksWithGroupPaths(PlcBlockGroup blockGroup, string groupPath, string regexName, List<(PlcBlock Block, string GroupPath)> blocks)
+        {
+            foreach (PlcBlock block in blockGroup.Blocks)
+            {
+                if (NameFilter.IsMatch(block.Name, regexName))
+                {
+                    blocks.Add((block, groupPath));
+                }
+            }
+
+            foreach (PlcBlockUserGroup userGroup in blockGroup.Groups)
+            {
+                CollectBlocksWithGroupPaths(userGroup, ExchangePaths.CombineGroupPath(groupPath, userGroup.Name), regexName, blocks);
+            }
+        }
+
+        private static void CollectTypesWithGroupPaths(PlcTypeGroup typeGroup, string groupPath, string regexName, List<(PlcType Type, string GroupPath)> types)
+        {
+            foreach (PlcType type in typeGroup.Types)
+            {
+                if (NameFilter.IsMatch(type.Name, regexName))
+                {
+                    types.Add((type, groupPath));
+                }
+            }
+
+            foreach (PlcTypeUserGroup userGroup in typeGroup.Groups)
+            {
+                CollectTypesWithGroupPaths(userGroup, ExchangePaths.CombineGroupPath(groupPath, userGroup.Name), regexName, types);
+            }
+        }
+
         private void GetRecursiveBlocksInUserGroup(PlcBlockUserGroup userGroup, List<PlcBlock> blocks, string regexName)
         {
             foreach (PlcBlock block in userGroup.Blocks)
             {
-                if (string.IsNullOrEmpty(regexName) ||
-                    (regexName.IndexOfAny(_regexChars) >= 0 && Regex.IsMatch(block.Name, regexName, RegexOptions.IgnoreCase)) ||
-                    block.Name.Contains(regexName, StringComparison.OrdinalIgnoreCase))
+                if (NameFilter.IsMatch(block.Name, regexName))
                 {
                     blocks.Add(block);
                 }

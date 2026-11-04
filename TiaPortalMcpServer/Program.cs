@@ -40,7 +40,8 @@ namespace TiaPortalMcpServer
 
         static void RegisterSiemensAssembly()
         {
-            var tiaMajorVersion = 20;
+            // Must match the major version of the Siemens.Collaboration.Net.TiaPortal.Packages.Openness package in the csproj
+            var tiaMajorVersion = 21;
             Api.Global.Openness().Initialize(tiaMajorVersion: tiaMajorVersion);
         }
 

@@ -35,6 +35,30 @@ namespace TiaPortalMcpServer.Tests
         }
 
         [Fact]
+        public void ListPaths_NoProject_ReturnsError()
+        {
+            var sessionManager = ServiceProvider.GetRequiredService<TiaPortalSessionManager>();
+            sessionManager.CloseCurrentProject();
+
+            var response = ParseToolResult<object>(_softwareTools.software_paths_list());
+
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+        }
+
+        [Fact]
+        public void GetTree_NoProject_ReturnsError()
+        {
+            var sessionManager = ServiceProvider.GetRequiredService<TiaPortalSessionManager>();
+            sessionManager.CloseCurrentProject();
+
+            var response = ParseToolResult<object>(_softwareTools.software_tree_get("TestDevice"));
+
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+        }
+
+        [Fact]
         public void ListBlocks_NoProject_ReturnsError()
         {
             // Arrange
@@ -75,6 +99,38 @@ namespace TiaPortalMcpServer.Tests
 
             // Act
             var result = _softwareTools.software_add_block("TestDevice", "FB", "TestBlock");
+
+            // Assert
+            var response = ParseToolResult<object>(result);
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+        }
+
+        [Fact]
+        public void ListSoftwareUnits_NoProject_ReturnsError()
+        {
+            // Arrange
+            var sessionManager = ServiceProvider.GetRequiredService<TiaPortalSessionManager>();
+            sessionManager.CloseCurrentProject();
+
+            // Act
+            var result = _softwareTools.software_units_list("TestDevice");
+
+            // Assert
+            var response = ParseToolResult<object>(result);
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+        }
+
+        [Fact]
+        public void ListBlocks_InUnit_NoProject_ReturnsError()
+        {
+            // Arrange
+            var sessionManager = ServiceProvider.GetRequiredService<TiaPortalSessionManager>();
+            sessionManager.CloseCurrentProject();
+
+            // Act
+            var result = _softwareTools.blocks_list("TestDevice", "SWS_Main");
 
             // Assert
             var response = ParseToolResult<object>(result);

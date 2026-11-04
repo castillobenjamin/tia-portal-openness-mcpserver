@@ -49,5 +49,36 @@ namespace TiaPortalMcpServer.Tests
             Assert.False(response.Success);
             Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
         }
+
+        [Fact]
+        public void CompileBlock_NoProject_ReturnsError()
+        {
+            ServiceProvider.GetRequiredService<TiaPortalSessionManager>().CloseCurrentProject();
+
+            var response = ParseToolResult<object>(_compilationTools.compilation_block("TestDevice", "Main"));
+
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+        }
+
+        [Fact]
+        public void CompileHmi_NoProject_ReturnsError()
+        {
+            ServiceProvider.GetRequiredService<TiaPortalSessionManager>().CloseCurrentProject();
+
+            var response = ParseToolResult<object>(_compilationTools.compilation_hmi("TabletHMI"));
+
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+        }
+
+        [Fact]
+        public void CompileProject_InvalidMessageFilter_ReturnsInvalidParameter()
+        {
+            var response = ParseToolResult<object>(_compilationTools.compilation_project("Warnings"));
+
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+        }
     }
 }

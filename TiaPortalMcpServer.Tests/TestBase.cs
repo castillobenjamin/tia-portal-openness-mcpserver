@@ -41,7 +41,8 @@ namespace TiaPortalMcpServer.Tests
             // Initialize Siemens Openness API
             try
             {
-                var tiaMajorVersion = 20;
+                // Must match the Openness package major version and Program.RegisterSiemensAssembly
+                var tiaMajorVersion = 21;
                 Api.Global.Openness().Initialize(tiaMajorVersion: tiaMajorVersion);
             }
             catch (Exception ex)

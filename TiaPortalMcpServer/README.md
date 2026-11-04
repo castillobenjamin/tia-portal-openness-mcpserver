@@ -80,6 +80,7 @@ npx @chewcw/tia-portal-openness-mcpserver update
 - `projects_open` - Open an existing project (prompts for path if missing and client supports elicitation)
 - `projects_close` - Close the current project
 - `projects_save` - Save the current project
+- `projects_save_as` - Save the current project to a new, empty directory and continue with the copy
 
 ### Device
 - `devices_list` - List all devices in the project
@@ -100,9 +101,15 @@ npx @chewcw/tia-portal-openness-mcpserver update
 - `catalog_search_device_items` - Search the hardware catalog for device items
 
 ### Software/PLC Development
+
+The block, tag and software tools below (and the advanced block tools) take an optional `unitName`. Leave it empty to work on the device's main PLC software, or pass a name from `software_units_list` to work inside that Software Unit.
+
 - `software_add_block` - Add a block to a PLC
 - `blocks_list` - List all blocks in a PLC
 - `software_get_block_hierarchy` - Get the call hierarchy of a block
+- `software_units_list` - List the Software Units (standard and safety) of a PLC
+- `software_paths_list` - List every PLC software and Software Unit in the project (including devices in device folders) as `Device` / `Device/Unit` paths, with the `deviceName` and `unitName` to pass to the other tools
+- `software_tree_get` - Get the project tree of a PLC or Software Unit: program blocks, PLC data types, tag tables and external sources as nested groups with group paths and object counts (`includeItems=false` for groups only)
 - `tags_create` - Create PLC tags
 - `tags_list` - List PLC tags
 - `tags_tagtable_create` - Create tag tables
@@ -140,14 +147,52 @@ npx @chewcw/tia-portal-openness-mcpserver update
 - `blocks_fingerprints_get` - Get block fingerprints
 - `blocks_ob_priority_set` - Set OB priority
 
+### SimaticML XML Exchange
+Export and import blocks and PLC data types (UDTs) as SimaticML `.xml` files. These tools also take an optional `unitName`. Exports search all groups. `importOption` (`None`, `Override`, `SkipInactiveCultures`, `ActivateInactiveCultures`) and `swImportOption` (`IgnoreStructuralChanges`, `IgnoreMissingReferencedObjects`, `IgnoreUnitAttributes`) take comma-separated names. Imports support `dryRun`, skip files that hold the other kind of object, retry files whose dependencies were not imported yet, and save the project after a successful import.
+
+- `blocks_export_as_xml` - Export one block as SimaticML
+- `blocks_export_all_as_xml` - Export all blocks, optionally filtered by name/regex
+- `blocks_import_from_xml` - Import the blocks of one SimaticML file into a block group
+- `blocks_import_all_from_xml` - Import the blocks of all SimaticML files in a directory
+- `types_export_as_xml` - Export one PLC data type as SimaticML
+- `types_export_all_as_xml` - Export all PLC data types, optionally filtered by name/regex
+- `types_import_from_xml` - Import the PLC data types of one SimaticML file into a type group
+- `types_import_all_from_xml` - Import the PLC data types of all SimaticML files in a directory
+
+### SIMATIC SD Documents
+Export and import blocks as SIMATIC SD documents (`.s7dcl`/`.s7res`). These tools also take an optional `unitName`.
+
+- `blocks_export_as_documents` - Export one block as SD documents
+- `blocks_export_all_as_documents` - Export all blocks, optionally filtered by name/regex
+- `blocks_import_from_documents` - Import one document pair into a block group
+- `blocks_import_all_from_documents` - Import all document pairs in a directory
+
+### Keeping the TIA Folder Structure (`preservePath`)
+The bulk export and import tools for SimaticML and SD documents, and the single-object exports, take `preservePath`. With `preservePath=true`, exports mirror the TIA project tree below `exportPath`: blocks go below `Program blocks/` and PLC data types below `PLC data types/`, each followed by the group path. Blocks and types can share one `exportPath`:
+
+```text
+exportPath/
+  Program blocks/
+    Main.xml
+    Motion/Axis/Axis_FB.xml
+  PLC data types/
+    Motion/Axis_UDT.xml
+```
+
+Bulk imports with `preservePath=true` read the same layout back. Pass the same path as `importPath`: the tree starts in `importPath/Program blocks` (blocks) or `importPath/PLC data types` (types) when that folder exists, and in `importPath` itself otherwise. Each subdirectory is imported into the group of the same path below `groupName`, and missing groups are created. Without `preservePath`, exports write all files directly into `exportPath` and imports read only the files directly in `importPath`.
+
 ### Utility Operations
 - `utilities_get_project_info` - Get project information
 - `utilities_list_libraries` - List available libraries
 - `utilities_elicit_user_input` - Ask the user for missing information via MCP elicitation
 
 ### Compilation
+The compilation tools return the overall state, error and warning counts, and each compiler message with the path of the object it belongs to (for example `MSPLC_M2/Program blocks/Motion/Axis_FB`), its location (for example `Network 2`) and its description. `messageFilter` selects `Errors`, `ErrorsAndWarnings` (default) or `All`; `maxMessages` (default 200, 0 for no limit) caps the list, and `matchedMessageCount`/`truncated` tell whether more messages matched.
+
 - `compilation_project` - Compile the entire project
-- `compilation_software` - Compile PLC software
+- `compilation_software` - Compile the PLC software of a device, or one Software Unit with `unitName`
+- `compilation_block` - Compile a single PLC block
+- `compilation_hmi` - Compile the HMI software of a device
 
 ### File Handling
 - `files_read_csv` - Read a CSV file
@@ -160,6 +205,27 @@ npx @chewcw/tia-portal-openness-mcpserver update
 - `hmi_targets_list` - List HMI targets
 - `hmi_targets_get` - Get HMI target details
 - `hmi_targets_validate` - Validate HMI target configuration
+
+### WinCC Unified HMI
+Tools for WinCC Unified HMI software (Unified Comfort Panels and PC runtimes). Write tools support `dryRun` and change the open project in memory; call `projects_save` to persist the changes. Attributes are passed as a JSON object such as `{"Left": 20, "Top": 40, "Text": "Start"}`; numbers, booleans, enum member names and strings are converted to each attribute's type, and for multilingual texts a plain value sets every language while `de-DE:Start` sets one.
+
+- `hmi_unified_software_list` - List the WinCC Unified HMI devices with counts of screens, tags, tag tables, connections and text lists
+- `hmi_unified_screens_list` - List screens, including screens in screen groups
+- `hmi_unified_screen_create` - Create a screen, optionally in a screen group
+- `hmi_unified_screen_delete` - Delete a screen
+- `hmi_unified_screen_items_list` - List the items of a screen with type, position and size (`includeAttributes=true` for all simple attributes)
+- `hmi_unified_screen_item_types_list` - List the screen item types that can be created
+- `hmi_unified_screen_item_create` - Create a screen item and set its attributes
+- `hmi_unified_screen_item_set_attributes` - Set attributes of a screen item
+- `hmi_unified_screen_item_delete` - Delete a screen item
+- `hmi_unified_tag_tables_list` - List HMI tag tables
+- `hmi_unified_tags_list` - List HMI tags, optionally by tag table and name/regex
+- `hmi_unified_tag_create` - Create an internal or external (PLC-bound) HMI tag
+- `hmi_unified_tag_delete` - Delete an HMI tag
+- `hmi_unified_connections_list` - List HMI connections
+- `hmi_unified_textlists_list` - List text lists
+- `hmi_unified_textlists_export` - Export all text lists with their entries to a file
+- `hmi_unified_textlists_import` - Import text lists from such a file
 
 ### Sampling (LLM-assisted)
 - `sampling_generate_code` - Generate code with LLM assistance

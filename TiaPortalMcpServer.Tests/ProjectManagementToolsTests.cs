@@ -67,6 +67,17 @@ namespace TiaPortalMcpServer.Tests
         }
 
         [Fact]
+        public void SaveProjectAs_NoProject_ReturnsError()
+        {
+            ServiceProvider.GetRequiredService<TiaPortalSessionManager>().CloseCurrentProject();
+
+            var response = ParseToolResult<object>(_projectTools.projects_save_as("C:\\Temp\\SaveAsTarget", dryRun: true));
+
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+        }
+
+        [Fact]
         public void CloseProject_NoProject_ReturnsError()
         {
             // Arrange
