@@ -12,7 +12,7 @@ MCP (Model Context Protocol) server for Siemens TIA Portal Openness, plus a comp
 
 The server provides tool groups for:
 
-- project lifecycle (`projects_create`, `projects_open`, `projects_open_with_upgrade`, `projects_save`, `projects_close`, `projects_get_session_info`)
+- project lifecycle (`projects_create`, `projects_open`, `projects_open_with_upgrade`, `projects_save`, `projects_save_as`, `projects_close`, `projects_get_session_info`)
 - hardware and device management (`devices_list`, `devices_create`, `devices_delete`, `devices_get_attributes`, `devices_set_attribute`, `devices_get_app_id`, `devices_set_app_id`, `devices_search_catalog`)
 - device item management (`deviceitems_list`, `deviceitems_get_attributes`, `deviceitems_plug_move`, `deviceitems_copy`, `deviceitems_delete`, `catalog_search_device_items`)
 - PLC software and block operations (`software_add_block`, `blocks_list`, `software_get_block_hierarchy`, `software_units_list`)
@@ -23,9 +23,10 @@ The server provides tool groups for:
 - SIMATIC SD document exchange of blocks (`blocks_export_as_documents`, `blocks_export_all_as_documents`, `blocks_import_from_documents`, `blocks_import_all_from_documents`)
 - SimaticML XML exchange of blocks and PLC data types (`blocks_export_as_xml`, `blocks_export_all_as_xml`, `blocks_import_from_xml`, `blocks_import_all_from_xml`, `types_export_as_xml`, `types_export_all_as_xml`, `types_import_from_xml`, `types_import_all_from_xml`)
 - `preservePath` on the exchange tools mirrors the TIA project tree (`Program blocks/...`, `PLC data types/...`) on export and reads it back on import
-- compilation (`compilation_project`, `compilation_software`)
+- compilation with each error and warning reported with its object path (`compilation_project`, `compilation_software` incl. single Software Units, `compilation_block`, `compilation_hmi`)
 - file import and validation (`files_read_csv`, `files_read_excel`, `files_list_sheets`, `files_validate_format`, `files_get_info`)
 - HMI targets (`hmi_targets_list`, `hmi_targets_get`, `hmi_targets_validate`)
+- WinCC Unified HMI: screens, screen items, HMI tags, connections and text lists (17 `hmi_unified_*` tools)
 - sampling/LLM-assisted operations (`sampling_generate_code`, `sampling_summarize_project`, `sampling_get_suggestions`)
 - elicitation and utility helpers (`utilities_elicit_user_input`, `utilities_get_project_info`, `utilities_list_libraries`)
 

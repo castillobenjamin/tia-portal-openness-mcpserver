@@ -474,6 +474,60 @@ namespace TiaPortalMcpServer
             }
         }
 
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Save the open project with all changes to a new location (TIA Portal 'Save as'). TIA Portal continues with the project at the new location; the original stays as it was last saved. Returns the old and new project paths. Prerequisites: A project must be open; targetDirectory must not exist yet or be empty, and its parent directory must exist. Use dryRun=true to check the target without saving.")]
+        public CallToolResult projects_save_as(
+            [Description("Directory for the saved copy, e.g. 'C:\\Projects\\Line_v2'. Must not exist yet or be empty")] string targetDirectory,
+            [Description("If true, only check the target directory without saving")] bool dryRun = false)
+        {
+            _logger.LogInformation("projects_save_as called with targetDirectory='{TargetDirectory}', dryRun={DryRun}", targetDirectory, dryRun);
+
+            try
+            {
+                var project = _sessionManager.CurrentProject;
+                if (project == null)
+                {
+                    return McpToolResults.From(ToolResponse<object>.CreateError(ErrorCodes.NoProject, "No project is currently open. Use projects_open first."));
+                }
+
+                if (!ProjectPaths.TryValidateSaveAsTarget(targetDirectory, out var fullTarget, out var targetError))
+                {
+                    return McpToolResults.From(ToolResponse<object>.CreateError(ErrorCodes.InvalidParameter, targetError));
+                }
+
+                var previousPath = project.Path.FullName;
+                if (dryRun)
+                {
+                    return McpToolResults.From(ToolResponse<object>.CreateSuccess(new
+                    {
+                        projectName = project.Name,
+                        previousPath,
+                        targetDirectory = fullTarget,
+                        dryRun = true,
+                        message = $"Project '{project.Name}' can be saved to '{fullTarget}'"
+                    }));
+                }
+
+                var newPath = _sessionManager.SaveCurrentProjectAs(fullTarget);
+                return McpToolResults.From(ToolResponse<object>.CreateSuccess(new
+                {
+                    projectName = project.Name,
+                    previousPath,
+                    projectPath = newPath,
+                    message = $"Project '{project.Name}' saved to '{fullTarget}'"
+                }));
+            }
+            catch (COMException comEx)
+            {
+                _logger.LogError(comEx, "COM error saving project as '{TargetDirectory}'", targetDirectory);
+                return McpToolResults.From(ToolResponse<object>.CreateError(ErrorCodes.ComError, $"COM error saving project: {comEx.Message}", comEx.ToString()));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error saving project as '{TargetDirectory}'", targetDirectory);
+                return McpToolResults.From(ToolResponse<object>.CreateError(ErrorCodes.TiaError, $"Error saving project: {ex.Message}", ex.ToString()));
+            }
+        }
+
         [McpServerTool(Destructive = true, OpenWorld = true), Description("Close the currently open TIA Portal project and release resources. Returns confirmation with closed project name. Prerequisites: A project must be open. Note: Unsaved changes will be lost unless projects_save was called first. Recommended before opening a different project.")]
         public CallToolResult projects_close()
         {

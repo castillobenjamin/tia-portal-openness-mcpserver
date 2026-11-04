@@ -282,7 +282,7 @@ namespace TiaPortalMcpServer.Services
             errorCode = string.Empty;
             errorMessage = string.Empty;
 
-            var device = GetDevice(project, deviceName);
+            var device = FindDevice(project, deviceName);
             if (device == null)
             {
                 errorCode = ErrorCodes.DeviceNotFound;
@@ -358,7 +358,7 @@ namespace TiaPortalMcpServer.Services
         /// <summary>
         /// Finds a device by exact name at the top level, among the ungrouped devices or in any device folder.
         /// </summary>
-        private Device? GetDevice(Project project, string deviceName)
+        public Device? FindDevice(Project project, string deviceName)
         {
             if (project == null)
             {

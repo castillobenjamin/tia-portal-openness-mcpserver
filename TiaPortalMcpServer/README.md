@@ -80,6 +80,7 @@ npx @chewcw/tia-portal-openness-mcpserver update
 - `projects_open` - Open an existing project (prompts for path if missing and client supports elicitation)
 - `projects_close` - Close the current project
 - `projects_save` - Save the current project
+- `projects_save_as` - Save the current project to a new, empty directory and continue with the copy
 
 ### Device
 - `devices_list` - List all devices in the project
@@ -186,8 +187,12 @@ Bulk imports with `preservePath=true` read the same layout back. Pass the same p
 - `utilities_elicit_user_input` - Ask the user for missing information via MCP elicitation
 
 ### Compilation
+The compilation tools return the overall state, error and warning counts, and each compiler message with the path of the object it belongs to (for example `MSPLC_M2/Program blocks/Motion/Axis_FB`), its location (for example `Network 2`) and its description. `messageFilter` selects `Errors`, `ErrorsAndWarnings` (default) or `All`; `maxMessages` (default 200, 0 for no limit) caps the list, and `matchedMessageCount`/`truncated` tell whether more messages matched.
+
 - `compilation_project` - Compile the entire project
-- `compilation_software` - Compile PLC software
+- `compilation_software` - Compile the PLC software of a device, or one Software Unit with `unitName`
+- `compilation_block` - Compile a single PLC block
+- `compilation_hmi` - Compile the HMI software of a device
 
 ### File Handling
 - `files_read_csv` - Read a CSV file
@@ -200,6 +205,27 @@ Bulk imports with `preservePath=true` read the same layout back. Pass the same p
 - `hmi_targets_list` - List HMI targets
 - `hmi_targets_get` - Get HMI target details
 - `hmi_targets_validate` - Validate HMI target configuration
+
+### WinCC Unified HMI
+Tools for WinCC Unified HMI software (Unified Comfort Panels and PC runtimes). Write tools support `dryRun` and change the open project in memory; call `projects_save` to persist the changes. Attributes are passed as a JSON object such as `{"Left": 20, "Top": 40, "Text": "Start"}`; numbers, booleans, enum member names and strings are converted to each attribute's type, and for multilingual texts a plain value sets every language while `de-DE:Start` sets one.
+
+- `hmi_unified_software_list` - List the WinCC Unified HMI devices with counts of screens, tags, tag tables, connections and text lists
+- `hmi_unified_screens_list` - List screens, including screens in screen groups
+- `hmi_unified_screen_create` - Create a screen, optionally in a screen group
+- `hmi_unified_screen_delete` - Delete a screen
+- `hmi_unified_screen_items_list` - List the items of a screen with type, position and size (`includeAttributes=true` for all simple attributes)
+- `hmi_unified_screen_item_types_list` - List the screen item types that can be created
+- `hmi_unified_screen_item_create` - Create a screen item and set its attributes
+- `hmi_unified_screen_item_set_attributes` - Set attributes of a screen item
+- `hmi_unified_screen_item_delete` - Delete a screen item
+- `hmi_unified_tag_tables_list` - List HMI tag tables
+- `hmi_unified_tags_list` - List HMI tags, optionally by tag table and name/regex
+- `hmi_unified_tag_create` - Create an internal or external (PLC-bound) HMI tag
+- `hmi_unified_tag_delete` - Delete an HMI tag
+- `hmi_unified_connections_list` - List HMI connections
+- `hmi_unified_textlists_list` - List text lists
+- `hmi_unified_textlists_export` - Export all text lists with their entries to a file
+- `hmi_unified_textlists_import` - Import text lists from such a file
 
 ### Sampling (LLM-assisted)
 - `sampling_generate_code` - Generate code with LLM assistance

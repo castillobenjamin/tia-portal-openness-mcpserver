@@ -88,6 +88,7 @@ namespace TiaPortalMcpServer.Tests
         private static readonly Type[] SoftwareUnitAwareToolTypes =
         {
             typeof(TiaPortalMcpServer.BlocksTools),
+            typeof(TiaPortalMcpServer.CompilationTools),
             typeof(TiaPortalMcpServer.SoftwareTools),
             typeof(TiaPortalMcpServer.TagTools),
             typeof(TiaPortalMcpServer.XmlExchangeTools)
@@ -96,7 +97,8 @@ namespace TiaPortalMcpServer.Tests
         // Tools that take a device name but intentionally work on the whole PLC software
         private static readonly HashSet<string> UnitNameExemptTools = new HashSet<string>
         {
-            "software_units_list"
+            "software_units_list",
+            "compilation_hmi"
         };
 
         [Fact]
