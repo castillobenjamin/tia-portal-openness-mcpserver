@@ -81,5 +81,37 @@ namespace TiaPortalMcpServer.Tests
             Assert.False(response.Success);
             Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
         }
+
+        [Fact]
+        public void ListSoftwareUnits_NoProject_ReturnsError()
+        {
+            // Arrange
+            var sessionManager = ServiceProvider.GetRequiredService<TiaPortalSessionManager>();
+            sessionManager.CloseCurrentProject();
+
+            // Act
+            var result = _softwareTools.software_units_list("TestDevice");
+
+            // Assert
+            var response = ParseToolResult<object>(result);
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+        }
+
+        [Fact]
+        public void ListBlocks_InUnit_NoProject_ReturnsError()
+        {
+            // Arrange
+            var sessionManager = ServiceProvider.GetRequiredService<TiaPortalSessionManager>();
+            sessionManager.CloseCurrentProject();
+
+            // Act
+            var result = _softwareTools.blocks_list("TestDevice", "SWS_Main");
+
+            // Assert
+            var response = ParseToolResult<object>(result);
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+        }
     }
 }

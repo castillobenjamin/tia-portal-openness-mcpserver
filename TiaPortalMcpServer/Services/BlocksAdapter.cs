@@ -123,7 +123,7 @@ namespace TiaPortalMcpServer.Services
         /// <summary>
         /// Add external source file
         /// </summary>
-        public ToolResponse<ExternalSourceInfo> AddExternalSource(PlcSoftware plcSoftware, string name, string filePath)
+        public ToolResponse<ExternalSourceInfo> AddExternalSource(PlcScope plcScope, string name, string filePath)
         {
             try
             {
@@ -139,7 +139,7 @@ namespace TiaPortalMcpServer.Services
                     return ToolResponse<ExternalSourceInfo>.CreateError(ErrorCodes.InvalidParameter, "Unsupported file extension. Must be .awl, .scl, .db, or .udt");
                 }
 
-                var externalSource = plcSoftware.ExternalSourceGroup.ExternalSources.CreateFromFile(name, filePath);
+                var externalSource = plcScope.ExternalSourceGroup.ExternalSources.CreateFromFile(name, filePath);
                 var info = new ExternalSourceInfo
                 {
                     Name = externalSource.Name,
@@ -157,12 +157,12 @@ namespace TiaPortalMcpServer.Services
         /// <summary>
         /// Generate source from blocks or types
         /// </summary>
-        public ToolResponse<string> GenerateSource(PlcSoftware plcSoftware, IEnumerable<IGenerateSource> sources, FileInfo targetFile, GenerateOptions options)
+        public ToolResponse<string> GenerateSource(PlcScope plcScope, IEnumerable<IGenerateSource> sources, FileInfo targetFile, GenerateOptions options)
         {
             try
             {
-                // Get the external source system group from PlcSoftware
-                var systemGroup = plcSoftware.ExternalSourceGroup;
+                // Get the external source system group of the main PLC software or Software Unit
+                var systemGroup = plcScope.ExternalSourceGroup;
                 if (systemGroup == null)
                 {
                     return ToolResponse<string>.CreateError(ErrorCodes.TiaError, "External source system group not available");
@@ -181,7 +181,7 @@ namespace TiaPortalMcpServer.Services
         /// <summary>
         /// Generate source from blocks or types and return the generated text
         /// </summary>
-        public ToolResponse<string> GenerateSourceText(PlcSoftware plcSoftware, IEnumerable<IGenerateSource> sources, string? fileExtension, GenerateOptions options)
+        public ToolResponse<string> GenerateSourceText(PlcScope plcScope, IEnumerable<IGenerateSource> sources, string? fileExtension, GenerateOptions options)
         {
             var extension = string.IsNullOrWhiteSpace(fileExtension) ? ".scl" : fileExtension.Trim();
             if (!extension.StartsWith(".", StringComparison.Ordinal))
@@ -194,7 +194,7 @@ namespace TiaPortalMcpServer.Services
 
             try
             {
-                var generateResult = GenerateSource(plcSoftware, sources, tempFile, options);
+                var generateResult = GenerateSource(plcScope, sources, tempFile, options);
                 if (!generateResult.Success)
                 {
                     return ToolResponse<string>.CreateError(generateResult.ErrorCode ?? ErrorCodes.TiaError, generateResult.Error ?? "Failed to generate source", generateResult.Details);
@@ -357,11 +357,11 @@ namespace TiaPortalMcpServer.Services
         /// <summary>
         /// Get user-defined types (UDTs)
         /// </summary>
-        public ToolResponse<IList<PlcTypeInfo>> GetUserTypes(PlcSoftware plcSoftware)
+        public ToolResponse<IList<PlcTypeInfo>> GetUserTypes(PlcScope plcScope)
         {
             try
             {
-                var types = plcSoftware.TypeGroup.Types.ToList();
+                var types = plcScope.TypeGroup.Types.ToList();
                 var userTypes = types
                     .Select(t => new PlcTypeInfo
                     {

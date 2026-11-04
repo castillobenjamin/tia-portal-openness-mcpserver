@@ -42,7 +42,8 @@ namespace TiaPortalMcpServer
         public CallToolResult blocks_prodiag_assigned_get(
             [Description("Device name")] string deviceName,
             [Description("Path to member (e.g., 'DB_Name.SimpleUdtInstance' or 'ArrayUdtMember.ArrayUdtMember[0]')")] string memberPath,
-            [Description("Member type: 'db' for DB member, 'tag' for tag table member")] string memberType)
+            [Description("Member type: 'db' for DB member, 'tag' for tag table member")] string memberType,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_prodiag_assigned_get called with deviceName='{DeviceName}', memberPath='{MemberPath}', memberType='{MemberType}'", deviceName, memberPath, memberType);
 
@@ -54,19 +55,13 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<string?>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<string?>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<string?>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<string?>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                if (!TryResolveMember(plcSoftware, memberPath, memberType, out var member, out var errorCode, out var errorMessage))
+                if (!TryResolveMember(plcScope, memberPath, memberType, out var member, out var errorCode, out var errorMessage))
                 {
                     return McpToolResults.From(ToolResponse<string?>.CreateError(errorCode, errorMessage));
                 }
@@ -92,7 +87,8 @@ namespace TiaPortalMcpServer
             [Description("Path to member (e.g., 'DB_Name.SimpleUdtInstance' or 'ArrayUdtMember.ArrayUdtMember[0]')")] string memberPath,
             [Description("Member type: 'db' for DB member, 'tag' for tag table member")] string memberType,
             [Description("ProDiag FB name to assign")] string proDiagFbName,
-            [Description("If true, only validate without making changes")] bool dryRun = false)
+            [Description("If true, only validate without making changes")] bool dryRun = false,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_prodiag_assigned_set called with deviceName='{DeviceName}', memberPath='{MemberPath}', memberType='{MemberType}', proDiagFbName='{ProDiagFbName}', dryRun={DryRun}", deviceName, memberPath, memberType, proDiagFbName, dryRun);
 
@@ -104,19 +100,13 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<bool>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                if (!TryResolveMember(plcSoftware, memberPath, memberType, out var member, out var errorCode, out var errorMessage))
+                if (!TryResolveMember(plcScope, memberPath, memberType, out var member, out var errorCode, out var errorMessage))
                 {
                     return McpToolResults.From(ToolResponse<bool>.CreateError(errorCode, errorMessage));
                 }
@@ -150,7 +140,8 @@ namespace TiaPortalMcpServer
         [McpServerTool(ReadOnly = true, Idempotent = true), Description("Retrieve ProDiag attributes and configuration for a specific ProDiag Function Block. Returns diagnostic properties including monitoring parameters and alarm settings. Prerequisites: Project must be open, device must exist, ProDiag FB must exist. Use this to inspect ProDiag FB configuration before modification.")]
         public CallToolResult blocks_prodiag_attributes_get(
             [Description("Device name")] string deviceName,
-            [Description("ProDiag FB name")] string fbName)
+            [Description("ProDiag FB name")] string fbName,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_prodiag_attributes_get called with deviceName='{DeviceName}', fbName='{FbName}'", deviceName, fbName);
 
@@ -162,19 +153,13 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<ProDiagAttributes>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<ProDiagAttributes>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<ProDiagAttributes>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<ProDiagAttributes>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                var fb = plcSoftware.BlockGroup.Blocks.Find(fbName) as FB;
+                var fb = plcScope.BlockGroup.Blocks.Find(fbName) as FB;
                 if (fb == null)
                 {
                     return McpToolResults.From(ToolResponse<ProDiagAttributes>.CreateError(ErrorCodes.BlockNotFound, $"FB '{fbName}' not found"));
@@ -194,7 +179,8 @@ namespace TiaPortalMcpServer
         public CallToolResult blocks_prodiag_export_csv(
             [Description("Device name")] string deviceName,
             [Description("ProDiag FB name")] string fbName,
-            [Description("Directory path to export CSV files")] string directoryPath)
+            [Description("Directory path to export CSV files")] string directoryPath,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_prodiag_export_csv called with deviceName='{DeviceName}', fbName='{FbName}', directoryPath='{DirectoryPath}'", deviceName, fbName, directoryPath);
 
@@ -206,19 +192,13 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<string>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<string>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<string>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<string>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                var fb = plcSoftware.BlockGroup.Blocks.Find(fbName) as FB;
+                var fb = plcScope.BlockGroup.Blocks.Find(fbName) as FB;
                 if (fb == null)
                 {
                     return McpToolResults.From(ToolResponse<string>.CreateError(ErrorCodes.BlockNotFound, $"FB '{fbName}' not found"));
@@ -248,7 +228,8 @@ namespace TiaPortalMcpServer
         public CallToolResult blocks_external_source_add(
             [Description("Device name")] string deviceName,
             [Description("Name for the external source")] string name,
-            [Description("Path to the source file (.awl, .scl, .db, .udt)")] string filePath)
+            [Description("Path to the source file (.awl, .scl, .db, .udt)")] string filePath,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_external_source_add called with deviceName='{DeviceName}', name='{Name}', filePath='{FilePath}'", deviceName, name, filePath);
 
@@ -260,19 +241,13 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<ExternalSourceInfo>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<ExternalSourceInfo>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<ExternalSourceInfo>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<ExternalSourceInfo>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                var result = _blocksAdapter.AddExternalSource(plcSoftware, name, filePath);
+                var result = _blocksAdapter.AddExternalSource(plcScope, name, filePath);
 
                 try
                 {
@@ -295,7 +270,8 @@ namespace TiaPortalMcpServer
 
         [McpServerTool(ReadOnly = true, Idempotent = true), Description("List all external source files in the PLC project. Returns a list of external source objects with their names and paths. Prerequisites: Project must be open, device must have PLC software. Use to check what external sources are available before generating blocks or deleting.")]
         public CallToolResult blocks_external_source_list(
-            [Description("Device name")] string deviceName)
+            [Description("Device name")] string deviceName,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_external_source_list called with deviceName='{DeviceName}'", deviceName);
 
@@ -307,20 +283,14 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<IList<ExternalSourceInfo>>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<IList<ExternalSourceInfo>>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
-                }
-
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<IList<ExternalSourceInfo>>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
+                    return McpToolResults.From(ToolResponse<IList<ExternalSourceInfo>>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 var results = new List<ExternalSourceInfo>();
-                foreach (var externalSource in plcSoftware.ExternalSourceGroup.ExternalSources)
+                foreach (var externalSource in plcScope.ExternalSourceGroup.ExternalSources)
                 {
                     results.Add(new ExternalSourceInfo
                     {
@@ -342,7 +312,8 @@ namespace TiaPortalMcpServer
             [Description("Device name")] string deviceName,
             [Description("Block or type names to generate source from")] string[] sourceNames,
             [Description("Target file path")] string targetFilePath,
-            [Description("Generate options: 'None' or 'WithDependencies'")] string options = "WithDependencies")
+            [Description("Generate options: 'None' or 'WithDependencies'")] string options = "WithDependencies",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_source_generate called with deviceName='{DeviceName}', sourceNames=[{SourceNames}], targetFilePath='{TargetFilePath}', options='{Options}'", deviceName, string.Join(",", sourceNames), targetFilePath, options);
 
@@ -354,29 +325,23 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<string>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<string>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
-                }
-
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<string>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
+                    return McpToolResults.From(ToolResponse<string>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 var sources = new List<IGenerateSource>();
                 foreach (var name in sourceNames)
                 {
-                    var block = plcSoftware.BlockGroup.Blocks.Find(name);
+                    var block = plcScope.BlockGroup.Blocks.Find(name);
                     if (block != null)
                     {
                         sources.Add(block);
                         continue;
                     }
 
-                    var type = plcSoftware.TypeGroup.Types.Find(name);
+                    var type = plcScope.TypeGroup.Types.Find(name);
                     if (type != null)
                     {
                         sources.Add(type);
@@ -389,7 +354,7 @@ namespace TiaPortalMcpServer
                 var targetFile = new FileInfo(targetFilePath);
                 var generateOptions = options == "WithDependencies" ? GenerateOptions.WithDependencies : GenerateOptions.None;
 
-                var result = _blocksAdapter.GenerateSource(plcSoftware, sources, targetFile, generateOptions);
+                var result = _blocksAdapter.GenerateSource(plcScope, sources, targetFile, generateOptions);
                 return McpToolResults.From(result);
             }
             catch (Exception ex)
@@ -403,7 +368,8 @@ namespace TiaPortalMcpServer
         public CallToolResult blocks_source_generate_from_block(
             [Description("Device name")] string deviceName,
             [Description("Block name")] string blockName,
-            [Description("Generate options: 'None' or 'WithDependencies'")] string options = "WithDependencies")
+            [Description("Generate options: 'None' or 'WithDependencies'")] string options = "WithDependencies",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_source_generate_from_block called with deviceName='{DeviceName}', blockName='{BlockName}', options='{Options}'", deviceName, blockName, options);
 
@@ -415,19 +381,13 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<string>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<string>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<string>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<string>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                var block = plcSoftware.BlockGroup.Blocks.Find(blockName);
+                var block = plcScope.BlockGroup.Blocks.Find(blockName);
                 if (block == null)
                 {
                     return McpToolResults.From(ToolResponse<string>.CreateError(ErrorCodes.BlockNotFound, $"Block '{blockName}' not found"));
@@ -437,7 +397,7 @@ namespace TiaPortalMcpServer
                 var extension = GetSourceExtension(block.ProgrammingLanguage);
                 var sources = new List<IGenerateSource> { block };
 
-                var result = _blocksAdapter.GenerateSourceText(plcSoftware, sources, extension, generateOptions);
+                var result = _blocksAdapter.GenerateSourceText(plcScope, sources, extension, generateOptions);
                 return McpToolResults.From(result);
             }
             catch (Exception ex)
@@ -449,7 +409,8 @@ namespace TiaPortalMcpServer
 
         [McpServerTool(Destructive = true, OpenWorld = true), Description("Compile all external sources in the PLC project into executable blocks. Processes every external source file and generates corresponding block objects. Returns list of generated blocks. Prerequisites: Project must be open, device must have PLC software, external sources must be syntactically valid. Use after adding multiple external sources for batch compilation.")]
         public CallToolResult blocks_external_source_generate_all(
-            [Description("Device name")] string deviceName)
+            [Description("Device name")] string deviceName,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_external_source_generate_all called with deviceName='{DeviceName}'", deviceName);
 
@@ -461,20 +422,14 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<IList<BlockInfo>>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<IList<BlockInfo>>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
-                }
-
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<IList<BlockInfo>>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
+                    return McpToolResults.From(ToolResponse<IList<BlockInfo>>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 var results = new List<BlockInfo>();
-                foreach (var externalSource in plcSoftware.ExternalSourceGroup.ExternalSources)
+                foreach (var externalSource in plcScope.ExternalSourceGroup.ExternalSources)
                 {
                     var result = _blocksAdapter.GenerateBlocksFromSource(externalSource, GenerateBlockOption.None);
                     if (!result.Success)
@@ -497,7 +452,8 @@ namespace TiaPortalMcpServer
         public CallToolResult blocks_external_source_generate_with_options(
             [Description("Device name")] string deviceName,
             [Description("External source name")] string sourceName,
-            [Description("Generate options: 'None' or 'KeepOnError'")] string options = "None")
+            [Description("Generate options: 'None' or 'KeepOnError'")] string options = "None",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_external_source_generate_with_options called with deviceName='{DeviceName}', sourceName='{SourceName}', options='{Options}'", deviceName, sourceName, options);
 
@@ -509,19 +465,13 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<IList<BlockInfo>>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<IList<BlockInfo>>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<IList<BlockInfo>>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<IList<BlockInfo>>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                var externalSource = plcSoftware.ExternalSourceGroup.ExternalSources.Find(sourceName);
+                var externalSource = plcScope.ExternalSourceGroup.ExternalSources.Find(sourceName);
                 if (externalSource == null)
                 {
                     return McpToolResults.From(ToolResponse<IList<BlockInfo>>.CreateError(ErrorCodes.InvalidParameter, $"External source '{sourceName}' not found"));
@@ -542,7 +492,8 @@ namespace TiaPortalMcpServer
         public CallToolResult blocks_external_source_delete(
             [Description("Device name")] string deviceName,
             [Description("External source name")] string sourceName,
-            [Description("If true, only validate without deleting")] bool dryRun = false)
+            [Description("If true, only validate without deleting")] bool dryRun = false,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_external_source_delete called with deviceName='{DeviceName}', sourceName='{SourceName}', dryRun={DryRun}", deviceName, sourceName, dryRun);
 
@@ -554,19 +505,13 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<bool>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                var externalSource = plcSoftware.ExternalSourceGroup.ExternalSources.Find(sourceName);
+                var externalSource = plcScope.ExternalSourceGroup.ExternalSources.Find(sourceName);
                 if (externalSource == null)
                 {
                     return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.InvalidParameter, $"External source '{sourceName}' not found"));
@@ -590,7 +535,8 @@ namespace TiaPortalMcpServer
         public CallToolResult blocks_udt_delete(
             [Description("Device name")] string deviceName,
             [Description("UDT name")] string udtName,
-            [Description("If true, only validate without deleting")] bool dryRun = false)
+            [Description("If true, only validate without deleting")] bool dryRun = false,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_udt_delete called with deviceName='{DeviceName}', udtName='{UdtName}', dryRun={DryRun}", deviceName, udtName, dryRun);
 
@@ -602,19 +548,13 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<bool>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                var udt = plcSoftware.TypeGroup.Types.Find(udtName);
+                var udt = plcScope.TypeGroup.Types.Find(udtName);
                 if (udt == null)
                 {
                     return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.InvalidParameter, $"UDT '{udtName}' not found"));
@@ -643,7 +583,8 @@ namespace TiaPortalMcpServer
 
         [McpServerTool(ReadOnly = true, Idempotent = true), Description("Enumerate all system-defined data types available in the PLC software including elementary types, complex types, and hardware types. Returns hierarchical list of system type groups. Prerequisites: Project must be open, device must have PLC software. Use this to discover available data types for tag/block creation.")]
         public CallToolResult blocks_system_types_list(
-            [Description("Device name")] string deviceName)
+            [Description("Device name")] string deviceName,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_system_types_list called with deviceName='{DeviceName}'", deviceName);
 
@@ -655,19 +596,13 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<IList<PlcSystemTypeGroup>>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<IList<PlcSystemTypeGroup>>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<IList<PlcSystemTypeGroup>>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<IList<PlcSystemTypeGroup>>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                var result = _blocksAdapter.GetSystemTypes(plcSoftware);
+                var result = _blocksAdapter.GetSystemTypes(plcScope.Software);
                 return McpToolResults.From(result);
             }
             catch (Exception ex)
@@ -679,7 +614,8 @@ namespace TiaPortalMcpServer
 
         [McpServerTool(ReadOnly = true, Idempotent = true), Description("Enumerate all user-defined types (UDTs) available in the PLC software. Returns list of UDT names and namespaces. Prerequisites: Project must be open, device must have PLC software. Use this to discover available UDTs for data block creation or tag definitions.")]
         public CallToolResult blocks_user_types_list(
-            [Description("Device name")] string deviceName)
+            [Description("Device name")] string deviceName,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_user_types_list called with deviceName='{DeviceName}'", deviceName);
 
@@ -691,19 +627,13 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<IList<PlcTypeInfo>>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<IList<PlcTypeInfo>>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<IList<PlcTypeInfo>>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<IList<PlcTypeInfo>>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                var result = _blocksAdapter.GetUserTypes(plcSoftware);
+                var result = _blocksAdapter.GetUserTypes(plcScope);
                 return McpToolResults.From(result);
             }
             catch (Exception ex)
@@ -716,7 +646,8 @@ namespace TiaPortalMcpServer
         [McpServerTool(Destructive = true, OpenWorld = true), Description("Open a specific PLC block in the TIA Portal graphical editor for manual editing. Returns success confirmation. Prerequisites: Project must be open, block must exist, TIA Portal UI must be accessible. Use this when programmatic modifications are insufficient and visual editing is required. The editor opens in the active TIA Portal instance.")]
         public CallToolResult blocks_editor_open_block(
             [Description("Device name")] string deviceName,
-            [Description("Block name")] string blockName)
+            [Description("Block name")] string blockName,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_editor_open_block called with deviceName='{DeviceName}', blockName='{BlockName}'", deviceName, blockName);
 
@@ -728,19 +659,13 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<bool>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                var block = plcSoftware.BlockGroup.Blocks.Find(blockName);
+                var block = plcScope.BlockGroup.Blocks.Find(blockName);
                 if (block == null)
                 {
                     return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.BlockNotFound, $"Block '{blockName}' not found"));
@@ -759,7 +684,8 @@ namespace TiaPortalMcpServer
         [McpServerTool(Destructive = true, OpenWorld = true), Description("Open a User-Defined Type (UDT) in the TIA Portal graphical editor for manual editing. Returns success confirmation. Prerequisites: Project must be open, UDT must exist, TIA Portal UI must be accessible. Use this for visual UDT structure editing when programmatic type modifications are not available.")]
         public CallToolResult blocks_editor_open_type(
             [Description("Device name")] string deviceName,
-            [Description("Type name")] string typeName)
+            [Description("Type name")] string typeName,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_editor_open_type called with deviceName='{DeviceName}', typeName='{TypeName}'", deviceName, typeName);
 
@@ -771,19 +697,13 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<bool>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                var type = plcSoftware.TypeGroup.Types.Find(typeName);
+                var type = plcScope.TypeGroup.Types.Find(typeName);
                 if (type == null)
                 {
                     return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.InvalidParameter, $"Type '{typeName}' not found"));
@@ -802,7 +722,8 @@ namespace TiaPortalMcpServer
         [McpServerTool(ReadOnly = true, Idempotent = true), Description("Retrieve interface fingerprints for a block or User-Defined Type to track interface version changes. Returns list of fingerprints representing interface structure. Prerequisites: Project must be open, block/UDT must exist. Use this to detect interface changes, manage version compatibility, or validate block dependencies before updates.")]
         public CallToolResult blocks_fingerprints_get(
             [Description("Device name")] string deviceName,
-            [Description("Block or UDT name")] string name)
+            [Description("Block or UDT name")] string name,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_fingerprints_get called with deviceName='{DeviceName}', name='{Name}'", deviceName, name);
 
@@ -814,22 +735,16 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<IList<Fingerprint>>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<IList<Fingerprint>>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<IList<Fingerprint>>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<IList<Fingerprint>>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                IEngineeringObject? obj = plcSoftware.BlockGroup.Blocks.Find(name);
+                IEngineeringObject? obj = plcScope.BlockGroup.Blocks.Find(name);
                 if (obj == null)
                 {
-                    obj = plcSoftware.TypeGroup.Types.Find(name);
+                    obj = plcScope.TypeGroup.Types.Find(name);
                 }
 
                 if (obj == null)
@@ -852,7 +767,8 @@ namespace TiaPortalMcpServer
             [Description("Device name")] string deviceName,
             [Description("OB block name")] string obName,
             [Description("Priority number")] int priority,
-            [Description("If true, only validate without setting")] bool dryRun = false)
+            [Description("If true, only validate without setting")] bool dryRun = false,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_ob_priority_set called with deviceName='{DeviceName}', obName='{ObName}', priority={Priority}, dryRun={DryRun}", deviceName, obName, priority, dryRun);
 
@@ -864,19 +780,13 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<bool>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                var obBlock = plcSoftware.BlockGroup.Blocks.Find(obName);
+                var obBlock = plcScope.BlockGroup.Blocks.Find(obName);
                 if (obBlock == null)
                 {
                     return McpToolResults.From(ToolResponse<bool>.CreateError(ErrorCodes.BlockNotFound, $"OB block '{obName}' not found"));
@@ -911,7 +821,8 @@ namespace TiaPortalMcpServer
         public CallToolResult blocks_export_as_documents(
             [Description("Device name")] string deviceName,
             [Description("Block name")] string blockName,
-            [Description("Directory path to export the documents to")] string exportPath)
+            [Description("Directory path to export the documents to")] string exportPath,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_export_as_documents called with deviceName='{DeviceName}', blockName='{BlockName}', exportPath='{ExportPath}'", deviceName, blockName, exportPath);
 
@@ -923,19 +834,13 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                var block = _sessionManager.PortalService.FindBlock(plcSoftware.BlockGroup, blockName);
+                var block = _sessionManager.PortalService.FindBlock(plcScope.BlockGroup, blockName);
                 if (block == null)
                 {
                     return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.BlockNotFound, $"Block '{blockName}' not found"));
@@ -966,7 +871,8 @@ namespace TiaPortalMcpServer
         public CallToolResult blocks_export_all_as_documents(
             [Description("Device name")] string deviceName,
             [Description("Directory path to export the documents to")] string exportPath,
-            [Description("Case-insensitive name fragment or regular expression to filter blocks. Empty string exports all blocks.")] string regexName = "")
+            [Description("Case-insensitive name fragment or regular expression to filter blocks. Empty string exports all blocks.")] string regexName = "",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_export_all_as_documents called with deviceName='{DeviceName}', exportPath='{ExportPath}', regexName='{RegexName}'", deviceName, exportPath, regexName);
 
@@ -983,16 +889,10 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
-                }
-
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 var directory = new DirectoryInfo(exportPath);
@@ -1001,7 +901,7 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, $"Export directory '{exportPath}' does not exist"));
                 }
 
-                var blocks = _sessionManager.PortalService.GetBlocks(project, deviceName, regexName);
+                var blocks = _sessionManager.PortalService.GetBlocks(plcScope, regexName);
                 var result = _blocksAdapter.ExportAllAsDocuments(blocks, directory);
                 return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateSuccess(result));
             }
@@ -1019,7 +919,8 @@ namespace TiaPortalMcpServer
             [Description("Block file name without extension (must match the .s7dcl file name)")] string fileNameWithoutExtension,
             [Description("Target block group path, e.g. 'Motion/Axis'. Leave empty for the root block group.")] string groupName = "",
             [Description("Import option: 'None' (fail if the block exists), 'Override', 'SkipInactiveCultures', or 'ActivateInactiveCultures'")] string importOption = "Override",
-            [Description("If true, only validate the document pair and import option without importing")] bool dryRun = false)
+            [Description("If true, only validate the document pair and import option without importing")] bool dryRun = false,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_import_from_documents called with deviceName='{DeviceName}', importPath='{ImportPath}', fileNameWithoutExtension='{FileName}', groupName='{GroupName}', dryRun={DryRun}", deviceName, importPath, fileNameWithoutExtension, groupName, dryRun);
 
@@ -1036,16 +937,10 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
-                }
-
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 var directory = new DirectoryInfo(importPath);
@@ -1054,14 +949,14 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"Import directory '{importPath}' does not exist"));
                 }
 
-                var blockGroup = _sessionManager.PortalService.FindBlockGroup(plcSoftware.BlockGroup, groupName);
+                var blockGroup = _sessionManager.PortalService.FindBlockGroup(plcScope.BlockGroup, groupName);
                 if (blockGroup == null)
                 {
                     return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"Block group '{groupName}' not found"));
                 }
 
                 var result = dryRun
-                    ? _blocksAdapter.ValidateDocuments(directory, fileNameWithoutExtension, option, name => _sessionManager.PortalService.FindBlock(plcSoftware.BlockGroup, name) != null)
+                    ? _blocksAdapter.ValidateDocuments(directory, fileNameWithoutExtension, option, name => _sessionManager.PortalService.FindBlock(plcScope.BlockGroup, name) != null)
                     : _blocksAdapter.ImportFromDocuments(blockGroup, directory, fileNameWithoutExtension, option);
 
                 if (result.IsFailure)
@@ -1091,7 +986,8 @@ namespace TiaPortalMcpServer
             [Description("Target block group path, e.g. 'Motion/Axis'. Leave empty for the root block group.")] string groupName = "",
             [Description("Case-insensitive name fragment or regular expression to filter which .s7dcl files to import. Empty string imports all.")] string regexName = "",
             [Description("Import option: 'None' (fail if the block exists), 'Override', 'SkipInactiveCultures', or 'ActivateInactiveCultures'")] string importOption = "Override",
-            [Description("If true, only validate the document pairs and import option without importing")] bool dryRun = false)
+            [Description("If true, only validate the document pairs and import option without importing")] bool dryRun = false,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_import_all_from_documents called with deviceName='{DeviceName}', importPath='{ImportPath}', groupName='{GroupName}', regexName='{RegexName}', dryRun={DryRun}", deviceName, importPath, groupName, regexName, dryRun);
 
@@ -1113,16 +1009,10 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
-                }
-
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(scopeErrorCode, scopeError));
                 }
 
                 var directory = new DirectoryInfo(importPath);
@@ -1131,7 +1021,7 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, $"Import directory '{importPath}' does not exist"));
                 }
 
-                var blockGroup = _sessionManager.PortalService.FindBlockGroup(plcSoftware.BlockGroup, groupName);
+                var blockGroup = _sessionManager.PortalService.FindBlockGroup(plcScope.BlockGroup, groupName);
                 if (blockGroup == null)
                 {
                     return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, $"Block group '{groupName}' not found"));
@@ -1143,7 +1033,7 @@ namespace TiaPortalMcpServer
                     .ToList();
 
                 var result = dryRun
-                    ? _blocksAdapter.ValidateAllDocuments(directory, fileNames, option, name => _sessionManager.PortalService.FindBlock(plcSoftware.BlockGroup, name) != null)
+                    ? _blocksAdapter.ValidateAllDocuments(directory, fileNames, option, name => _sessionManager.PortalService.FindBlock(plcScope.BlockGroup, name) != null)
                     : _blocksAdapter.ImportAllFromDocuments(blockGroup, directory, fileNames, option);
 
                 if (!dryRun && result.SucceededCount > 0)
@@ -1315,7 +1205,8 @@ namespace TiaPortalMcpServer
             [Description("Device name")] string deviceName,
             [Description("External source name")] string sourceName,
             [Description("Block group name")] string groupName,
-            [Description("Generate options: 'None' or 'KeepOnError'")] string options = "None")
+            [Description("Generate options: 'None' or 'KeepOnError'")] string options = "None",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
             _logger.LogInformation("blocks_external_source_generate_in_group called with deviceName='{DeviceName}', sourceName='{SourceName}', groupName='{GroupName}', options='{Options}'", deviceName, sourceName, groupName, options);
 
@@ -1327,25 +1218,19 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<IList<BlockInfo>>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
-                if (device == null)
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
                 {
-                    return McpToolResults.From(ToolResponse<IList<BlockInfo>>.CreateError(ErrorCodes.DeviceNotFound, $"Device '{deviceName}' not found"));
+                    return McpToolResults.From(ToolResponse<IList<BlockInfo>>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var plcSoftware = _sessionManager.PortalService.GetPlcSoftware(device);
-                if (plcSoftware == null)
-                {
-                    return McpToolResults.From(ToolResponse<IList<BlockInfo>>.CreateError(ErrorCodes.TiaError, $"Device '{deviceName}' does not have PLC software"));
-                }
-
-                var externalSource = plcSoftware.ExternalSourceGroup.ExternalSources.Find(sourceName);
+                var externalSource = plcScope.ExternalSourceGroup.ExternalSources.Find(sourceName);
                 if (externalSource == null)
                 {
                     return McpToolResults.From(ToolResponse<IList<BlockInfo>>.CreateError(ErrorCodes.InvalidParameter, $"External source '{sourceName}' not found"));
                 }
 
-                var blockGroup = plcSoftware.BlockGroup.Groups.Find(groupName);
+                var blockGroup = plcScope.BlockGroup.Groups.Find(groupName);
                 if (blockGroup == null)
                 {
                     return McpToolResults.From(ToolResponse<IList<BlockInfo>>.CreateError(ErrorCodes.InvalidParameter, $"Block group '{groupName}' not found"));
@@ -1381,7 +1266,7 @@ namespace TiaPortalMcpServer
         }
 
         private bool TryResolveMember(
-            PlcSoftware plcSoftware,
+            PlcScope plcScope,
             string memberPath,
             string memberType,
             out IEngineeringObject? member,
@@ -1397,7 +1282,7 @@ namespace TiaPortalMcpServer
 
             if (memberType.ToLowerInvariant() == "db")
             {
-                var dataBlock = plcSoftware.BlockGroup.Blocks.Find(rootName);
+                var dataBlock = plcScope.BlockGroup.Blocks.Find(rootName);
                 if (dataBlock == null)
                 {
                     errorCode = ErrorCodes.BlockNotFound;
@@ -1427,7 +1312,7 @@ namespace TiaPortalMcpServer
 
             if (memberType.ToLowerInvariant() == "tag")
             {
-                var tagTable = plcSoftware.TagTableGroup.TagTables.Find(rootName);
+                var tagTable = plcScope.TagTableGroup.TagTables.Find(rootName);
                 if (tagTable == null)
                 {
                     errorCode = ErrorCodes.InvalidParameter;

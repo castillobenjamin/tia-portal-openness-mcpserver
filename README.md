@@ -15,7 +15,8 @@ The server provides tool groups for:
 - project lifecycle (`projects_create`, `projects_open`, `projects_open_with_upgrade`, `projects_save`, `projects_close`, `projects_get_session_info`)
 - hardware and device management (`devices_list`, `devices_create`, `devices_delete`, `devices_get_attributes`, `devices_set_attribute`, `devices_get_app_id`, `devices_set_app_id`, `devices_search_catalog`)
 - device item management (`deviceitems_list`, `deviceitems_get_attributes`, `deviceitems_plug_move`, `deviceitems_copy`, `deviceitems_delete`, `catalog_search_device_items`)
-- PLC software and block operations (`software_add_block`, `blocks_list`, `software_get_block_hierarchy`)
+- PLC software and block operations (`software_add_block`, `blocks_list`, `software_get_block_hierarchy`, `software_units_list`)
+- Software Units: block, tag and software tools take an optional `unitName` to work inside a Software Unit instead of the device's main PLC software; `software_units_list` lists the available units
 - tag and tag-table management (`tags_create`, `tags_list`, `tags_tagtable_create`, `tags_tagtable_list`, `tags_tagtable_get`, `tags_tagtable_delete`, `tags_tagtable_export`, `tags_tagtable_open_editor`, `tags_group_create`, `tags_group_list`, `tags_group_find`, `tags_group_delete`, `tags_group_system_get`, `tags_constants_user_list`, `tags_constants_system_list`)
 - advanced block operations (external sources, ProDiag, UDTs, types, editor helpers — 19 tools in `BlocksTools`)
 - compilation (`compilation_project`, `compilation_software`)

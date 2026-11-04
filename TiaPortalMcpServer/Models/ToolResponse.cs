@@ -61,6 +61,7 @@ namespace TiaPortalMcpServer.Models
         public const string DeviceItemNotFound = "DEVICE_ITEM_NOT_FOUND";
         public const string BlockExists = "BLOCK_EXISTS";
         public const string BlockNotFound = "BLOCK_NOT_FOUND";
+        public const string SoftwareUnitNotFound = "SOFTWARE_UNIT_NOT_FOUND";
         public const string CompilationError = "COMPILATION_ERROR";
         public const string AlreadyOpen = "ALREADY_OPEN";
         public const string NotOpen = "NOT_OPEN";

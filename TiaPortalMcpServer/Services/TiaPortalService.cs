@@ -11,6 +11,8 @@ using Siemens.Engineering.HW;
 using Siemens.Engineering.HW.Features;
 using Siemens.Engineering.SW;
 using Siemens.Engineering.SW.Blocks;
+using Siemens.Engineering.SW.Units;
+using TiaPortalMcpServer.Models;
 
 namespace TiaPortalMcpServer.Services
 {
@@ -260,29 +262,96 @@ namespace TiaPortalMcpServer.Services
             return null;
         }
 
-        public List<PlcBlock> GetBlocks(Project project, string softwarePath, string regexName = "")
+        /// <summary>
+        /// Returns all blocks in the scope's block group and its user subgroups that pass the name filter.
+        /// </summary>
+        public List<PlcBlock> GetBlocks(PlcScope scope, string regexName = "")
         {
-            if (project == null)
-            {
-                return new List<PlcBlock>();
-            }
-
             var blocks = new List<PlcBlock>();
-            var device = GetDevice(project, softwarePath);
-            if (device != null)
+            GetRecursiveBlocks(scope.BlockGroup, blocks, regexName);
+            return blocks;
+        }
+
+        /// <summary>
+        /// Resolves the PLC software a tool works on: the device's main PLC software, or the named Software Unit
+        /// when <paramref name="unitName"/> is not empty. On failure returns null and sets an error code and message.
+        /// </summary>
+        public PlcScope? ResolvePlcScope(Project project, string deviceName, string? unitName, out string errorCode, out string errorMessage)
+        {
+            errorCode = string.Empty;
+            errorMessage = string.Empty;
+
+            var device = GetDevice(project, deviceName);
+            if (device == null)
             {
-                var plcSoftware = GetPlcSoftware(device);
-                if (plcSoftware != null)
-                {
-                    var blockGroup = plcSoftware.BlockGroup;
-                    if (blockGroup != null)
-                    {
-                        GetRecursiveBlocks(blockGroup, blocks, regexName);
-                    }
-                }
+                errorCode = ErrorCodes.DeviceNotFound;
+                errorMessage = $"Device '{deviceName}' not found";
+                return null;
             }
 
-            return blocks;
+            var plcSoftware = GetPlcSoftware(device);
+            if (plcSoftware == null)
+            {
+                errorCode = ErrorCodes.TiaError;
+                errorMessage = $"Device '{deviceName}' does not have PLC software";
+                return null;
+            }
+
+            if (string.IsNullOrWhiteSpace(unitName))
+            {
+                return new PlcScope(deviceName, plcSoftware, null);
+            }
+
+            var unit = FindSoftwareUnit(plcSoftware, unitName!.Trim());
+            if (unit == null)
+            {
+                var available = (GetSoftwareUnits(plcSoftware) ?? new List<PlcUnitBase>()).Select(u => u.Name).ToList();
+                errorCode = ErrorCodes.SoftwareUnitNotFound;
+                errorMessage = $"Software Unit '{unitName}' not found on device '{deviceName}'. Available units: " +
+                    (available.Count > 0 ? string.Join(", ", available) : "none");
+                return null;
+            }
+
+            return new PlcScope(deviceName, plcSoftware, unit);
+        }
+
+        /// <summary>
+        /// Lists the standard and safety Software Units of the PLC software, or returns null when the CPU does not support Software Units.
+        /// </summary>
+        public IList<PlcUnitBase>? GetSoftwareUnits(PlcSoftware plcSoftware)
+        {
+            var unitGroup = plcSoftware.GetService<PlcUnitProvider>()?.UnitGroup;
+            if (unitGroup == null)
+            {
+                return null;
+            }
+
+            var units = new List<PlcUnitBase>();
+            foreach (PlcUnit unit in unitGroup.Units)
+            {
+                units.Add(unit);
+            }
+
+            foreach (PlcSafetyUnit safetyUnit in unitGroup.SafetyUnits)
+            {
+                units.Add(safetyUnit);
+            }
+
+            return units;
+        }
+
+        /// <summary>
+        /// Finds a standard or safety Software Unit by exact name.
+        /// </summary>
+        public PlcUnitBase? FindSoftwareUnit(PlcSoftware plcSoftware, string unitName)
+        {
+            var unitGroup = plcSoftware.GetService<PlcUnitProvider>()?.UnitGroup;
+            if (unitGroup == null)
+            {
+                return null;
+            }
+
+            return (PlcUnitBase?)unitGroup.Units.Find(unitName) ?? unitGroup.SafetyUnits.Find(unitName);
         }
 
         private Device? GetDevice(Project project, string devicePath)

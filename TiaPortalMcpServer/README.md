@@ -100,9 +100,13 @@ npx @chewcw/tia-portal-openness-mcpserver update
 - `catalog_search_device_items` - Search the hardware catalog for device items
 
 ### Software/PLC Development
+
+The block, tag and software tools below (and the advanced block tools) take an optional `unitName`. Leave it empty to work on the device's main PLC software, or pass a name from `software_units_list` to work inside that Software Unit.
+
 - `software_add_block` - Add a block to a PLC
 - `blocks_list` - List all blocks in a PLC
 - `software_get_block_hierarchy` - Get the call hierarchy of a block
+- `software_units_list` - List the Software Units (standard and safety) of a PLC
 - `tags_create` - Create PLC tags
 - `tags_list` - List PLC tags
 - `tags_tagtable_create` - Create tag tables
