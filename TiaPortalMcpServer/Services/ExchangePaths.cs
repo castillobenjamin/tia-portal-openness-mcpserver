@@ -1,15 +1,100 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
 namespace TiaPortalMcpServer.Services
 {
     /// <summary>
+    /// A file found for an import, with the group path it maps to.
+    /// </summary>
+    public class ExchangeFile
+    {
+        public ExchangeFile(FileInfo file, string groupPath)
+        {
+            File = file;
+            GroupPath = groupPath;
+        }
+
+        public FileInfo File { get; }
+
+        /// <summary>
+        /// Target group path such as "Motion/Axis", relative to the root block or type group.
+        /// </summary>
+        public string GroupPath { get; }
+
+        public string Name => Path.GetFileNameWithoutExtension(File.Name);
+    }
+
+    /// <summary>
     /// Maps TIA object names and block/type group paths (such as "Motion/Axis") to file system paths and back.
     /// </summary>
+    /// <remarks>
+    /// With preservePath, exports mirror the TIA project tree: blocks go below a "Program blocks" folder and PLC data types
+    /// below a "PLC data types" folder, each followed by the group path. Imports read the same layout back.
+    /// </remarks>
     public static class ExchangePaths
     {
+        /// <summary>
+        /// Folder that stands for the root block group in an exported tree, as named in the TIA project tree.
+        /// </summary>
+        public const string BlocksRootFolder = "Program blocks";
+
+        /// <summary>
+        /// Folder that stands for the root PLC data type group in an exported tree, as named in the TIA project tree.
+        /// </summary>
+        public const string TypesRootFolder = "PLC data types";
+
         private static readonly char[] GroupSeparators = { '/', '\\' };
+
+        /// <summary>
+        /// The export directory for an object: <paramref name="exportPath"/> itself, or with <paramref name="preservePath"/>
+        /// exportPath/rootFolder/group/path.
+        /// </summary>
+        public static string ToExportDirectory(string exportPath, string rootFolder, string? groupPath, bool preservePath)
+        {
+            return preservePath ? ToDirectory(Path.Combine(exportPath, rootFolder), groupPath) : exportPath;
+        }
+
+        /// <summary>
+        /// The directory that stands for the root group in an exported tree: <paramref name="importDirectory"/>/rootFolder
+        /// when it exists, so the export path can be passed back unchanged, otherwise <paramref name="importDirectory"/> itself.
+        /// </summary>
+        public static DirectoryInfo ResolveTreeRoot(DirectoryInfo importDirectory, string rootFolder)
+        {
+            var nested = new DirectoryInfo(Path.Combine(importDirectory.FullName, rootFolder));
+            return nested.Exists ? nested : importDirectory;
+        }
+
+        /// <summary>
+        /// Finds the files to import with the given extension (such as ".xml"), filtered by file name, ordered by path.
+        /// Without <paramref name="preservePath"/>, only the files directly in <paramref name="directory"/> are found and all go
+        /// into <paramref name="groupName"/>. With it, the tree below the resolved root folder is searched and each subdirectory
+        /// maps to the group of the same path below <paramref name="groupName"/>.
+        /// </summary>
+        public static List<ExchangeFile> FindFiles(DirectoryInfo directory, string extension, string? groupName, bool preservePath, string? regexName, string rootFolder)
+        {
+            var root = preservePath ? ResolveTreeRoot(directory, rootFolder) : directory;
+            var option = preservePath ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+            var result = new List<ExchangeFile>();
+
+            // Exact extension check: the "*.xml" search pattern also matches longer extensions such as ".xmlx"
+            foreach (var file in root.GetFiles("*" + extension, option).OrderBy(f => f.FullName, StringComparer.OrdinalIgnoreCase))
+            {
+                if (!string.Equals(file.Extension, extension, StringComparison.OrdinalIgnoreCase) ||
+                    !NameFilter.IsMatch(Path.GetFileNameWithoutExtension(file.Name), regexName))
+                {
+                    continue;
+                }
+
+                var groupPath = preservePath
+                    ? CombineGroupPath(groupName, ToGroupPath(root.FullName, file.DirectoryName!))
+                    : CombineGroupPath(groupName);
+                result.Add(new ExchangeFile(file, groupPath));
+            }
+
+            return result;
+        }
 
         /// <summary>
         /// Turns a TIA object or group name into a safe file or directory name by replacing invalid characters with '_'.

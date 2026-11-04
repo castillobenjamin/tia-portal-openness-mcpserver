@@ -43,6 +43,30 @@ namespace TiaPortalMcpServer.Tests
         }
 
         [Fact]
+        public void PlanDirectory_WithPreservePath_ReadsExportedProjectTree()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                // Layout written by blocks_export_all_as_xml and types_export_all_as_xml with preservePath=true
+                files.Write(Path.Combine("Program blocks", "Motion", "Axis_FB.xml"), SimaticMlTestFiles.Block("Axis_FB"));
+                files.Write(Path.Combine("PLC data types", "Motion", "Axis_UDT.xml"), SimaticMlTestFiles.Type("Axis_UDT"));
+
+                var blockPlans = XmlImportPlanner.PlanDirectory(new DirectoryInfo(files.Root), "", true, "", SimaticMlInspector.KindBlock);
+                var typePlans = XmlImportPlanner.PlanDirectory(new DirectoryInfo(files.Root), "", true, "", SimaticMlInspector.KindType);
+
+                var blockPlan = Assert.Single(blockPlans);
+                Assert.Equal("Axis_FB", blockPlan.Name);
+                Assert.Equal("Motion", blockPlan.GroupPath);
+                Assert.Null(blockPlan.Result);
+
+                var typePlan = Assert.Single(typePlans);
+                Assert.Equal("Axis_UDT", typePlan.Name);
+                Assert.Equal("Motion", typePlan.GroupPath);
+                Assert.Null(typePlan.Result);
+            }
+        }
+
+        [Fact]
         public void PlanDirectory_RegexFilter_MatchesFileNames()
         {
             using (var files = new SimaticMlTestFiles())

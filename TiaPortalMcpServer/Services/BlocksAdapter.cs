@@ -532,14 +532,6 @@ namespace TiaPortalMcpServer.Services
         }
 
         /// <summary>
-        /// Export each block as SIMATIC SD documents. A failing block does not stop the remaining ones.
-        /// </summary>
-        public DocumentBatchResult ExportAllAsDocuments(IEnumerable<PlcBlock> blocks, DirectoryInfo directory)
-        {
-            return DocumentBatchResult.From(blocks.Select(block => ExportAsDocuments(block, directory)).ToList());
-        }
-
-        /// <summary>
         /// Import a block from SIMATIC SD documents (.s7dcl/.s7res) into the given block group.
         /// Failures are reported in the result instead of being thrown.
         /// </summary>
@@ -561,20 +553,6 @@ namespace TiaPortalMcpServer.Services
                 _logger.LogError(ex, "Failed to import block {Name} from documents", fileNameWithoutExtension);
                 return CreateFailedDocumentResult(fileNameWithoutExtension, ex.Message);
             }
-        }
-
-        /// <summary>
-        /// Import each document pair into the given block group. A failing pair does not stop the remaining ones.
-        /// </summary>
-        public DocumentBatchResult ImportAllFromDocuments(PlcBlockGroup blockGroup, DirectoryInfo directory, IEnumerable<string> fileNamesWithoutExtension, ImportDocumentOptions option)
-        {
-            // Plain loop: a lambda capturing the Siemens enum would make a closure type that cannot load without the Openness resolver
-            var results = new List<DocumentOperationResult>();
-            foreach (var name in fileNamesWithoutExtension)
-            {
-                results.Add(ImportFromDocuments(blockGroup, directory, name, option));
-            }
-            return DocumentBatchResult.From(results);
         }
 
         /// <summary>
@@ -620,19 +598,6 @@ namespace TiaPortalMcpServer.Services
             }
 
             return result;
-        }
-
-        /// <summary>
-        /// Dry run for a bulk import: validates each document pair independently.
-        /// </summary>
-        public DocumentBatchResult ValidateAllDocuments(DirectoryInfo directory, IEnumerable<string> fileNamesWithoutExtension, ImportDocumentOptions option, Func<string, bool> blockExists)
-        {
-            var results = new List<DocumentOperationResult>();
-            foreach (var name in fileNamesWithoutExtension)
-            {
-                results.Add(ValidateDocuments(directory, name, option, blockExists));
-            }
-            return DocumentBatchResult.From(results);
         }
 
         private static IList<string> GetDocumentMessages(DocumentResultMessageComposition messages)

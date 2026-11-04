@@ -27,7 +27,10 @@ namespace TiaPortalMcpServer
     {
         private const string ImportOptionDescription = "Import options, comma-separated: 'None', 'Override' (replace existing objects), 'SkipInactiveCultures', 'ActivateInactiveCultures'";
         private const string SwImportOptionDescription = "Software import options, comma-separated: 'IgnoreStructuralChanges', 'IgnoreMissingReferencedObjects', 'IgnoreUnitAttributes'. Empty for none";
-        private const string PreservePathExportDescription = "If true, mirror the TIA group structure below exportPath, e.g. exportPath/Motion/Axis/Name.xml. If false, write all files directly into exportPath";
+        private const string PreservePathBlockExportDescription = "If true, mirror the TIA project tree below exportPath: exportPath/Program blocks/<group path>/Name.xml. If false, write all files directly into exportPath";
+        private const string PreservePathTypeExportDescription = "If true, mirror the TIA project tree below exportPath: exportPath/PLC data types/<group path>/Name.xml. If false, write all files directly into exportPath";
+        private const string PreservePathBlockImportDescription = "If true, read the tree written by an export with preservePath: start in importPath/Program blocks when it exists (otherwise importPath), include subdirectories and import each one into the block group of the same path below groupName. If false, import only the files directly in importPath";
+        private const string PreservePathTypeImportDescription = "If true, read the tree written by an export with preservePath: start in importPath/PLC data types when it exists (otherwise importPath), include subdirectories and import each one into the type group of the same path below groupName. If false, import only the files directly in importPath";
 
         private readonly ILogger<XmlExchangeTools> _logger;
         private readonly TiaPortalSessionManager _sessionManager;
@@ -50,7 +53,7 @@ namespace TiaPortalMcpServer
             [Description("Device name")] string deviceName,
             [Description("Block name")] string blockName,
             [Description("Directory to write the .xml file to")] string exportPath,
-            [Description(PreservePathExportDescription)] bool preservePath = false,
+            [Description(PreservePathBlockExportDescription)] bool preservePath = false,
             [Description("Include default values in the export")] bool includeDefaults = true,
             [Description("Include read-only values in the export")] bool includeReadOnly = false,
             [Description("Replace an existing file. If false, an existing file makes the export fail")] bool overwrite = false,
@@ -84,7 +87,7 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.BlockNotFound, $"Block '{blockName}' not found in '{plcScope.DisplayName}'"));
                 }
 
-                var targetFile = GetExportFile(exportPath, found.GroupPath, found.Block.Name, preservePath);
+                var targetFile = GetExportFile(exportPath, ExchangePaths.BlocksRootFolder, found.GroupPath, found.Block.Name, preservePath);
                 var result = _blocksAdapter.ExportBlockAsXml(found.Block, targetFile, found.GroupPath, ToExportOptions(includeDefaults, includeReadOnly), overwrite);
                 return ToSingleResponse(result, $"Failed to export block '{blockName}'");
             }
@@ -100,7 +103,7 @@ namespace TiaPortalMcpServer
             [Description("Device name")] string deviceName,
             [Description("Directory to write the .xml files to")] string exportPath,
             [Description("Case-insensitive name fragment or regular expression to filter blocks. Empty string exports all blocks.")] string regexName = "",
-            [Description(PreservePathExportDescription)] bool preservePath = false,
+            [Description(PreservePathBlockExportDescription)] bool preservePath = false,
             [Description("Include default values in the export")] bool includeDefaults = true,
             [Description("Include read-only values in the export")] bool includeReadOnly = false,
             [Description("Replace existing files. If false, an existing file makes that block's export fail")] bool overwrite = false,
@@ -134,7 +137,7 @@ namespace TiaPortalMcpServer
                 }
 
                 var items = _sessionManager.PortalService.GetBlocksWithGroupPaths(plcScope.BlockGroup, regexName)
-                    .Select(b => (b.Block, GetExportFile(exportPath, b.GroupPath, b.Block.Name, preservePath), b.GroupPath))
+                    .Select(b => (b.Block, GetExportFile(exportPath, ExchangePaths.BlocksRootFolder, b.GroupPath, b.Block.Name, preservePath), b.GroupPath))
                     .ToList();
 
                 var result = _blocksAdapter.ExportBlocksAsXml(items, ToExportOptions(includeDefaults, includeReadOnly), overwrite);
@@ -214,7 +217,7 @@ namespace TiaPortalMcpServer
             [Description("Directory containing the SimaticML .xml files")] string importPath,
             [Description("Target block group path, e.g. 'Motion/Axis'. Leave empty for the root block group.")] string groupName = "",
             [Description("Case-insensitive name fragment or regular expression to filter which .xml files to import. Empty string imports all.")] string regexName = "",
-            [Description("If true, include subdirectories and import each one into the block group of the same path below groupName")] bool preservePath = false,
+            [Description(PreservePathBlockImportDescription)] bool preservePath = false,
             [Description(ImportOptionDescription)] string importOption = "Override",
             [Description(SwImportOptionDescription)] string swImportOption = "",
             [Description("If true, only validate the files and options without importing")] bool dryRun = false,
@@ -294,7 +297,7 @@ namespace TiaPortalMcpServer
             [Description("Device name")] string deviceName,
             [Description("PLC data type name")] string typeName,
             [Description("Directory to write the .xml file to")] string exportPath,
-            [Description(PreservePathExportDescription)] bool preservePath = false,
+            [Description(PreservePathTypeExportDescription)] bool preservePath = false,
             [Description("Include default values in the export")] bool includeDefaults = true,
             [Description("Include read-only values in the export")] bool includeReadOnly = false,
             [Description("Replace an existing file. If false, an existing file makes the export fail")] bool overwrite = false,
@@ -328,7 +331,7 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"PLC data type '{typeName}' not found in '{plcScope.DisplayName}'"));
                 }
 
-                var targetFile = GetExportFile(exportPath, found.GroupPath, found.Type.Name, preservePath);
+                var targetFile = GetExportFile(exportPath, ExchangePaths.TypesRootFolder, found.GroupPath, found.Type.Name, preservePath);
                 var result = _blocksAdapter.ExportTypeAsXml(found.Type, targetFile, found.GroupPath, ToExportOptions(includeDefaults, includeReadOnly), overwrite);
                 return ToSingleResponse(result, $"Failed to export PLC data type '{typeName}'");
             }
@@ -344,7 +347,7 @@ namespace TiaPortalMcpServer
             [Description("Device name")] string deviceName,
             [Description("Directory to write the .xml files to")] string exportPath,
             [Description("Case-insensitive name fragment or regular expression to filter types. Empty string exports all types.")] string regexName = "",
-            [Description(PreservePathExportDescription)] bool preservePath = false,
+            [Description(PreservePathTypeExportDescription)] bool preservePath = false,
             [Description("Include default values in the export")] bool includeDefaults = true,
             [Description("Include read-only values in the export")] bool includeReadOnly = false,
             [Description("Replace existing files. If false, an existing file makes that type's export fail")] bool overwrite = false,
@@ -378,7 +381,7 @@ namespace TiaPortalMcpServer
                 }
 
                 var items = _sessionManager.PortalService.GetTypesWithGroupPaths(plcScope.TypeGroup, regexName)
-                    .Select(t => (t.Type, GetExportFile(exportPath, t.GroupPath, t.Type.Name, preservePath), t.GroupPath))
+                    .Select(t => (t.Type, GetExportFile(exportPath, ExchangePaths.TypesRootFolder, t.GroupPath, t.Type.Name, preservePath), t.GroupPath))
                     .ToList();
 
                 var result = _blocksAdapter.ExportTypesAsXml(items, ToExportOptions(includeDefaults, includeReadOnly), overwrite);
@@ -458,7 +461,7 @@ namespace TiaPortalMcpServer
             [Description("Directory containing the SimaticML .xml files")] string importPath,
             [Description("Target type group path, e.g. 'Motion/Axis'. Leave empty for the root type group.")] string groupName = "",
             [Description("Case-insensitive name fragment or regular expression to filter which .xml files to import. Empty string imports all.")] string regexName = "",
-            [Description("If true, include subdirectories and import each one into the type group of the same path below groupName")] bool preservePath = false,
+            [Description(PreservePathTypeImportDescription)] bool preservePath = false,
             [Description(ImportOptionDescription)] string importOption = "Override",
             [Description(SwImportOptionDescription)] string swImportOption = "",
             [Description("If true, only validate the files and options without importing")] bool dryRun = false,
@@ -661,9 +664,9 @@ namespace TiaPortalMcpServer
             return result;
         }
 
-        private static FileInfo GetExportFile(string exportPath, string groupPath, string objectName, bool preservePath)
+        private static FileInfo GetExportFile(string exportPath, string rootFolder, string groupPath, string objectName, bool preservePath)
         {
-            var directory = preservePath ? ExchangePaths.ToDirectory(exportPath, groupPath) : exportPath;
+            var directory = ExchangePaths.ToExportDirectory(exportPath, rootFolder, groupPath, preservePath);
             return new FileInfo(Path.Combine(directory, ExchangePaths.ToFileName(objectName) + ".xml"));
         }
 

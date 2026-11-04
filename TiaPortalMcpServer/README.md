@@ -145,7 +145,7 @@ The block, tag and software tools below (and the advanced block tools) take an o
 - `blocks_ob_priority_set` - Set OB priority
 
 ### SimaticML XML Exchange
-Export and import blocks and PLC data types (UDTs) as SimaticML `.xml` files. These tools also take an optional `unitName`. Exports search all groups; with `preservePath=true` the TIA group structure is mirrored as directories (for example `exportPath/Motion/Axis/Axis_FB.xml`), and imports map subdirectories back to groups, creating missing ones. `importOption` (`None`, `Override`, `SkipInactiveCultures`, `ActivateInactiveCultures`) and `swImportOption` (`IgnoreStructuralChanges`, `IgnoreMissingReferencedObjects`, `IgnoreUnitAttributes`) take comma-separated names. Imports support `dryRun`, skip files that hold the other kind of object, retry files whose dependencies were not imported yet, and save the project after a successful import.
+Export and import blocks and PLC data types (UDTs) as SimaticML `.xml` files. These tools also take an optional `unitName`. Exports search all groups. `importOption` (`None`, `Override`, `SkipInactiveCultures`, `ActivateInactiveCultures`) and `swImportOption` (`IgnoreStructuralChanges`, `IgnoreMissingReferencedObjects`, `IgnoreUnitAttributes`) take comma-separated names. Imports support `dryRun`, skip files that hold the other kind of object, retry files whose dependencies were not imported yet, and save the project after a successful import.
 
 - `blocks_export_as_xml` - Export one block as SimaticML
 - `blocks_export_all_as_xml` - Export all blocks, optionally filtered by name/regex
@@ -155,6 +155,28 @@ Export and import blocks and PLC data types (UDTs) as SimaticML `.xml` files. Th
 - `types_export_all_as_xml` - Export all PLC data types, optionally filtered by name/regex
 - `types_import_from_xml` - Import the PLC data types of one SimaticML file into a type group
 - `types_import_all_from_xml` - Import the PLC data types of all SimaticML files in a directory
+
+### SIMATIC SD Documents
+Export and import blocks as SIMATIC SD documents (`.s7dcl`/`.s7res`). These tools also take an optional `unitName`.
+
+- `blocks_export_as_documents` - Export one block as SD documents
+- `blocks_export_all_as_documents` - Export all blocks, optionally filtered by name/regex
+- `blocks_import_from_documents` - Import one document pair into a block group
+- `blocks_import_all_from_documents` - Import all document pairs in a directory
+
+### Keeping the TIA Folder Structure (`preservePath`)
+The bulk export and import tools for SimaticML and SD documents, and the single-object exports, take `preservePath`. With `preservePath=true`, exports mirror the TIA project tree below `exportPath`: blocks go below `Program blocks/` and PLC data types below `PLC data types/`, each followed by the group path. Blocks and types can share one `exportPath`:
+
+```text
+exportPath/
+  Program blocks/
+    Main.xml
+    Motion/Axis/Axis_FB.xml
+  PLC data types/
+    Motion/Axis_UDT.xml
+```
+
+Bulk imports with `preservePath=true` read the same layout back. Pass the same path as `importPath`: the tree starts in `importPath/Program blocks` (blocks) or `importPath/PLC data types` (types) when that folder exists, and in `importPath` itself otherwise. Each subdirectory is imported into the group of the same path below `groupName`, and missing groups are created. Without `preservePath`, exports write all files directly into `exportPath` and imports read only the files directly in `importPath`.
 
 ### Utility Operations
 - `utilities_get_project_info` - Get project information

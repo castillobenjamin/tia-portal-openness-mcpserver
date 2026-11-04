@@ -817,14 +817,17 @@ namespace TiaPortalMcpServer
 
         #region SD Document Tools
 
-        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export a PLC block as SIMATIC SD documents (.s7dcl/.s7res) for version control or exchange with text editors/diff tools. The block is searched in all block groups. Returns the export state, the written files and any messages from TIA Portal. Prerequisites: Project must be open, device must exist, block must exist, TIA Portal V20 or newer. Use blocks_import_from_documents to reverse this operation.")]
+        private const string PreservePathDocumentExportDescription = "If true, mirror the TIA project tree below exportPath: exportPath/Program blocks/<group path>/Name.s7dcl. If false, write all documents directly into exportPath";
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export a PLC block as SIMATIC SD documents (.s7dcl/.s7res) for version control or exchange with text editors/diff tools. The block is searched in all block groups. Returns the export state, the block's group path, the written files and any messages from TIA Portal. Prerequisites: Project must be open, device must exist, block must exist, TIA Portal V20 or newer. Use blocks_import_from_documents to reverse this operation.")]
         public CallToolResult blocks_export_as_documents(
             [Description("Device name")] string deviceName,
             [Description("Block name")] string blockName,
             [Description("Directory path to export the documents to")] string exportPath,
+            [Description(PreservePathDocumentExportDescription)] bool preservePath = false,
             [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
-            _logger.LogInformation("blocks_export_as_documents called with deviceName='{DeviceName}', blockName='{BlockName}', exportPath='{ExportPath}'", deviceName, blockName, exportPath);
+            _logger.LogInformation("blocks_export_as_documents called with deviceName='{DeviceName}', blockName='{BlockName}', exportPath='{ExportPath}', preservePath={PreservePath}", deviceName, blockName, exportPath, preservePath);
 
             try
             {
@@ -840,19 +843,18 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var block = _sessionManager.PortalService.FindBlock(plcScope.BlockGroup, blockName);
-                if (block == null)
+                var found = _sessionManager.PortalService.FindBlockWithGroupPath(plcScope.BlockGroup, blockName);
+                if (found.Block == null)
                 {
                     return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.BlockNotFound, $"Block '{blockName}' not found"));
                 }
 
-                var directory = new DirectoryInfo(exportPath);
-                if (!directory.Exists)
+                if (!Directory.Exists(exportPath))
                 {
                     return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"Export directory '{exportPath}' does not exist"));
                 }
 
-                var result = _blocksAdapter.ExportAsDocuments(block, directory);
+                var result = ExportBlockAsDocuments(found.Block, found.GroupPath, exportPath, preservePath);
                 if (result.IsFailure)
                 {
                     return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.TiaError, $"Failed to export block '{blockName}' as documents: {string.Join("; ", result.Messages)}"));
@@ -867,14 +869,15 @@ namespace TiaPortalMcpServer
             }
         }
 
-        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export multiple PLC blocks from all block groups as SIMATIC SD documents (.s7dcl/.s7res), optionally filtered by name/regex. Each block is exported independently; returns succeeded/failed counts and a per-block state with files and TIA Portal messages. Prerequisites: Project must be open, device must exist, TIA Portal V20 or newer. Use an empty regexName to export all blocks.")]
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export multiple PLC blocks from all block groups as SIMATIC SD documents (.s7dcl/.s7res), optionally filtered by name/regex and optionally mirroring the TIA project tree as directories. Each block is exported independently; returns succeeded/failed counts and a per-block state with group path, files and TIA Portal messages. Prerequisites: Project must be open, device must exist, TIA Portal V20 or newer. Use an empty regexName to export all blocks.")]
         public CallToolResult blocks_export_all_as_documents(
             [Description("Device name")] string deviceName,
             [Description("Directory path to export the documents to")] string exportPath,
             [Description("Case-insensitive name fragment or regular expression to filter blocks. Empty string exports all blocks.")] string regexName = "",
+            [Description(PreservePathDocumentExportDescription)] bool preservePath = false,
             [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
-            _logger.LogInformation("blocks_export_all_as_documents called with deviceName='{DeviceName}', exportPath='{ExportPath}', regexName='{RegexName}'", deviceName, exportPath, regexName);
+            _logger.LogInformation("blocks_export_all_as_documents called with deviceName='{DeviceName}', exportPath='{ExportPath}', regexName='{RegexName}', preservePath={PreservePath}", deviceName, exportPath, regexName, preservePath);
 
             try
             {
@@ -895,15 +898,18 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(scopeErrorCode, scopeError));
                 }
 
-                var directory = new DirectoryInfo(exportPath);
-                if (!directory.Exists)
+                if (!Directory.Exists(exportPath))
                 {
                     return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, $"Export directory '{exportPath}' does not exist"));
                 }
 
-                var blocks = _sessionManager.PortalService.GetBlocks(plcScope, regexName);
-                var result = _blocksAdapter.ExportAllAsDocuments(blocks, directory);
-                return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateSuccess(result));
+                var results = new List<DocumentOperationResult>();
+                foreach (var item in _sessionManager.PortalService.GetBlocksWithGroupPaths(plcScope.BlockGroup, regexName))
+                {
+                    results.Add(ExportBlockAsDocuments(item.Block, item.GroupPath, exportPath, preservePath));
+                }
+
+                return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateSuccess(DocumentBatchResult.From(results)));
             }
             catch (Exception ex)
             {
@@ -979,17 +985,18 @@ namespace TiaPortalMcpServer
             }
         }
 
-        [McpServerTool(Destructive = true, OpenWorld = true), Description("Import multiple PLC blocks from SIMATIC SD documents (.s7dcl/.s7res) in a directory, optionally filtered by name/regex. Each document pair is imported independently; returns succeeded/failed counts and a per-file state with imported blocks and TIA Portal messages. The project is saved if at least one import succeeded. Prerequisites: Project must be open, device must exist, TIA Portal V20 or newer. Use dryRun=true to check the document pairs and import option without importing. groupName is a path such as 'Motion/Axis'; leave it empty to import into the root block group.")]
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Import multiple PLC blocks from SIMATIC SD documents (.s7dcl/.s7res) in a directory, optionally filtered by name/regex. With preservePath=true, the tree written by an export with preservePath is read back: subdirectories map to block groups, which are created when missing. Each document pair is imported independently; returns succeeded/failed counts and a per-file state with group path, imported blocks and TIA Portal messages. The project is saved if at least one import succeeded. Prerequisites: Project must be open, device must exist, TIA Portal V20 or newer. Use dryRun=true to check the document pairs and import option without importing. groupName is a path such as 'Motion/Axis'; leave it empty to import into the root block group.")]
         public CallToolResult blocks_import_all_from_documents(
             [Description("Device name")] string deviceName,
             [Description("Directory path containing the .s7dcl/.s7res document files")] string importPath,
-            [Description("Target block group path, e.g. 'Motion/Axis'. Leave empty for the root block group.")] string groupName = "",
+            [Description("Target block group path, e.g. 'Motion/Axis'. Leave empty for the root block group. Without preservePath the group must exist.")] string groupName = "",
             [Description("Case-insensitive name fragment or regular expression to filter which .s7dcl files to import. Empty string imports all.")] string regexName = "",
             [Description("Import option: 'None' (fail if the block exists), 'Override', 'SkipInactiveCultures', or 'ActivateInactiveCultures'")] string importOption = "Override",
             [Description("If true, only validate the document pairs and import option without importing")] bool dryRun = false,
+            [Description("If true, start in importPath/Program blocks when it exists (otherwise importPath), include subdirectories and import each one into the block group of the same path below groupName, creating missing groups. If false, import only the documents directly in importPath")] bool preservePath = false,
             [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
         {
-            _logger.LogInformation("blocks_import_all_from_documents called with deviceName='{DeviceName}', importPath='{ImportPath}', groupName='{GroupName}', regexName='{RegexName}', dryRun={DryRun}", deviceName, importPath, groupName, regexName, dryRun);
+            _logger.LogInformation("blocks_import_all_from_documents called with deviceName='{DeviceName}', importPath='{ImportPath}', groupName='{GroupName}', regexName='{RegexName}', dryRun={DryRun}, preservePath={PreservePath}", deviceName, importPath, groupName, regexName, dryRun, preservePath);
 
             try
             {
@@ -1021,21 +1028,22 @@ namespace TiaPortalMcpServer
                     return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, $"Import directory '{importPath}' does not exist"));
                 }
 
-                var blockGroup = _sessionManager.PortalService.FindBlockGroup(plcScope.BlockGroup, groupName);
-                if (blockGroup == null)
+                if (!preservePath && _sessionManager.PortalService.FindBlockGroup(plcScope.BlockGroup, groupName) == null)
                 {
                     return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, $"Block group '{groupName}' not found"));
                 }
 
-                var fileNames = directory.GetFiles("*.s7dcl", SearchOption.TopDirectoryOnly)
-                    .Select(f => Path.GetFileNameWithoutExtension(f.Name))
-                    .Where(n => NameFilter.IsMatch(n, regexName))
-                    .ToList();
+                var files = ExchangePaths.FindFiles(directory, ".s7dcl", groupName, preservePath, regexName, ExchangePaths.BlocksRootFolder);
+                Func<string, bool> blockExists = name => _sessionManager.PortalService.FindBlock(plcScope.BlockGroup, name) != null;
 
-                var result = dryRun
-                    ? _blocksAdapter.ValidateAllDocuments(directory, fileNames, option, name => _sessionManager.PortalService.FindBlock(plcScope.BlockGroup, name) != null)
-                    : _blocksAdapter.ImportAllFromDocuments(blockGroup, directory, fileNames, option);
+                // Plain loop: a lambda capturing the Siemens import option would make a closure type that cannot load without the Openness resolver
+                var results = new List<DocumentOperationResult>();
+                foreach (var file in files)
+                {
+                    results.Add(ImportDocumentsIntoGroup(plcScope, file, option, dryRun, blockExists));
+                }
 
+                var result = DocumentBatchResult.From(results);
                 if (!dryRun && result.SucceededCount > 0)
                 {
                     SaveProjectAfterDocumentImport();
@@ -1048,6 +1056,80 @@ namespace TiaPortalMcpServer
                 _logger.LogError(ex, "Unexpected error in blocks_import_all_from_documents");
                 return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.TiaError, "Unexpected error", ex.Message));
             }
+        }
+
+        /// <summary>
+        /// Exports one block as SD documents into exportPath, or with <paramref name="preservePath"/> into
+        /// exportPath/Program blocks/&lt;group path&gt;. Failures are reported in the result.
+        /// </summary>
+        private DocumentOperationResult ExportBlockAsDocuments(PlcBlock block, string groupPath, string exportPath, bool preservePath)
+        {
+            DocumentOperationResult result;
+            try
+            {
+                var directory = Directory.CreateDirectory(ExchangePaths.ToExportDirectory(exportPath, ExchangePaths.BlocksRootFolder, groupPath, preservePath));
+                result = _blocksAdapter.ExportAsDocuments(block, directory);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create the export directory for block {Name}", block.Name);
+                result = new DocumentOperationResult
+                {
+                    Name = block.Name,
+                    State = DocumentOperationResult.StateFailure,
+                    Messages = new List<string> { $"Cannot create the export directory: {ex.Message}" }
+                };
+            }
+
+            result.GroupPath = groupPath;
+            return result;
+        }
+
+        /// <summary>
+        /// Imports (or with <paramref name="dryRun"/> validates) one document pair into the block group its path maps to,
+        /// creating the group when missing. Failures are reported in the result.
+        /// </summary>
+        private DocumentOperationResult ImportDocumentsIntoGroup(PlcScope plcScope, ExchangeFile file, ImportDocumentOptions option, bool dryRun, Func<string, bool> blockExists)
+        {
+            var directory = file.File.Directory!;
+            var blockGroup = _sessionManager.PortalService.FindBlockGroup(plcScope.BlockGroup, file.GroupPath);
+            DocumentOperationResult result;
+
+            if (dryRun)
+            {
+                result = _blocksAdapter.ValidateDocuments(directory, file.Name, option, blockExists);
+                if (blockGroup == null)
+                {
+                    result.Messages.Add($"Block group '{file.GroupPath}' does not exist and would be created");
+                }
+            }
+            else
+            {
+                try
+                {
+                    if (blockGroup == null)
+                    {
+                        blockGroup = _sessionManager.PortalService.GetOrCreateBlockGroup(plcScope.BlockGroup, file.GroupPath);
+                        _logger.LogInformation("Created block group '{GroupPath}' in '{Scope}'", file.GroupPath, plcScope.DisplayName);
+                    }
+
+                    result = _blocksAdapter.ImportFromDocuments(blockGroup, directory, file.Name, option);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to create block group {GroupPath}", file.GroupPath);
+                    result = new DocumentOperationResult
+                    {
+                        Name = file.Name,
+                        State = DocumentOperationResult.StateFailure,
+                        Messages = new List<string> { $"Cannot create block group '{file.GroupPath}': {ex.Message}" }
+                    };
+                }
+            }
+
+            result.GroupPath = file.GroupPath;
+            result.Files ??= new List<string> { file.File.FullName };
+            return result;
         }
 
         private void SaveProjectAfterDocumentImport()

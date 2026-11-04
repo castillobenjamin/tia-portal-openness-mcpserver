@@ -43,20 +43,14 @@ namespace TiaPortalMcpServer.Services
     {
         /// <summary>
         /// Plans the import of the .xml files in <paramref name="directory"/>. With <paramref name="preservePath"/>,
-        /// subdirectories are included and each one maps to a user group below <paramref name="groupName"/>.
+        /// subdirectories are included and each one maps to a user group below <paramref name="groupName"/>; when
+        /// <paramref name="directory"/> holds a "Program blocks" (blocks) or "PLC data types" (types) folder, the tree starts there.
         /// </summary>
         public static List<XmlImportPlanItem> PlanDirectory(DirectoryInfo directory, string? groupName, bool preservePath, string? regexName, string expectedKind)
         {
-            var option = preservePath ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-            return directory.GetFiles("*.xml", option)
-                .Where(f => NameFilter.IsMatch(Path.GetFileNameWithoutExtension(f.Name), regexName))
-                .OrderBy(f => f.FullName, System.StringComparer.OrdinalIgnoreCase)
-                .Select(f => PlanFile(
-                    f,
-                    preservePath
-                        ? ExchangePaths.CombineGroupPath(groupName, ExchangePaths.ToGroupPath(directory.FullName, f.DirectoryName!))
-                        : ExchangePaths.CombineGroupPath(groupName),
-                    expectedKind))
+            var rootFolder = expectedKind == SimaticMlInspector.KindType ? ExchangePaths.TypesRootFolder : ExchangePaths.BlocksRootFolder;
+            return ExchangePaths.FindFiles(directory, ".xml", groupName, preservePath, regexName, rootFolder)
+                .Select(f => PlanFile(f.File, f.GroupPath, expectedKind))
                 .ToList();
         }
 
