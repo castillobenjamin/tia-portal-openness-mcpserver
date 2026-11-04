@@ -338,6 +338,7 @@ namespace TiaPortalMcpServer
                     .Select(unit => new
                     {
                         name = unit.Name,
+                        path = PlcSoftwarePathInfo.FormatPath(deviceName, unit.Name),
                         kind = unit is PlcSafetyUnit ? "Safety" : "Standard",
                         namespacePreset = unit.NamespacePreset,
                         author = unit.Author,
@@ -386,6 +387,94 @@ namespace TiaPortalMcpServer
                         ex.ToString()
                     )
                 );
+            }
+        }
+
+        [McpServerTool(ReadOnly = true, Idempotent = true, Name = "software_paths_list"), Description("List every PLC software in the open project, including devices in device folders, each followed by its Software Units (standard and safety). Each entry has a path ('Device' or 'Device/Unit'), the deviceName and unitName to pass to blocks, tags, software and exchange tools, the kind ('PlcSoftware', 'SoftwareUnit', 'SafetyUnit'), the PLC software name and the device folder. Prerequisites: Project must be open. Use this first to find out which PLCs and units a project has.")]
+        public CallToolResult software_paths_list()
+        {
+            _logger.LogInformation("software_paths_list called");
+
+            try
+            {
+                var project = _sessionManager.CurrentProject;
+                if (project == null)
+                {
+                    return McpToolResults.From(ToolResponse<object>.CreateError(ErrorCodes.NoProject, "No project is currently open. Use projects_open first."));
+                }
+
+                var paths = _sessionManager.PortalService.GetPlcSoftwarePaths(project);
+                _logger.LogInformation("Found {Count} PLC software paths", paths.Count);
+
+                return McpToolResults.From(ToolResponse<object>.CreateSuccess(new
+                {
+                    count = paths.Count,
+                    items = paths
+                }));
+            }
+            catch (COMException comEx)
+            {
+                _logger.LogError(comEx, "COM error listing PLC software paths");
+                return McpToolResults.From(ToolResponse<object>.CreateError(ErrorCodes.ComError, $"COM error listing PLC software paths: {comEx.Message}", comEx.ToString()));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error listing PLC software paths");
+                return McpToolResults.From(ToolResponse<object>.CreateError(ErrorCodes.TiaError, $"Error listing PLC software paths: {ex.Message}", ex.ToString()));
+            }
+        }
+
+        [McpServerTool(ReadOnly = true, Idempotent = true, Name = "software_tree_get"), Description("Get the project tree of a PLC software or Software Unit: program blocks, PLC data types, PLC tag tables and external sources, each as nested groups with their objects (name, kind such as FB/FC/OB/GlobalDB/PlcStruct, number, programming language). Every group has its path (e.g. 'Motion/Axis', the groupName the exchange tools take) and the total number of objects below it. For the main PLC software of a CPU with Software Units, also lists the units. Prerequisites: Project must be open, device must have PLC software. Set includeItems=false for a smaller, groups-only answer on large projects.")]
+        public CallToolResult software_tree_get(
+            [Description("Device name")] string deviceName,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "",
+            [Description("Include the program blocks section")] bool includeBlocks = true,
+            [Description("Include the PLC data types section")] bool includeTypes = true,
+            [Description("Include the PLC tags section (tag tables)")] bool includeTagTables = true,
+            [Description("Include the external sources section")] bool includeExternalSources = true,
+            [Description("Include the objects in each group. If false, only groups with their paths and counts are returned")] bool includeItems = true)
+        {
+            _logger.LogInformation("software_tree_get called with deviceName='{DeviceName}', unitName='{UnitName}', includeItems={IncludeItems}", deviceName, unitName, includeItems);
+
+            try
+            {
+                var project = _sessionManager.CurrentProject;
+                if (project == null)
+                {
+                    return McpToolResults.From(ToolResponse<SoftwareTree>.CreateError(ErrorCodes.NoProject, "No project is currently open. Use projects_open first."));
+                }
+
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
+                {
+                    return McpToolResults.From(ToolResponse<SoftwareTree>.CreateError(scopeErrorCode, scopeError));
+                }
+
+                var tree = SoftwareTreeBuilder.Build(plcScope, includeBlocks, includeTypes, includeTagTables, includeExternalSources, includeItems);
+                if (plcScope.Unit == null)
+                {
+                    var units = _sessionManager.PortalService.GetSoftwareUnits(plcScope.Software);
+                    if (units != null && units.Count > 0)
+                    {
+                        var deviceGroupPath = _sessionManager.PortalService.GetDevicesWithGroupPaths(project)
+                            .Where(d => d.Device.Name == deviceName)
+                            .Select(d => d.GroupPath)
+                            .FirstOrDefault() ?? string.Empty;
+                        tree.Units = _sessionManager.PortalService.GetUnitPaths(deviceName, deviceGroupPath, plcScope.Software, units);
+                    }
+                }
+
+                return McpToolResults.From(ToolResponse<SoftwareTree>.CreateSuccess(tree));
+            }
+            catch (COMException comEx)
+            {
+                _logger.LogError(comEx, "COM error getting the software tree of '{DeviceName}'", deviceName);
+                return McpToolResults.From(ToolResponse<SoftwareTree>.CreateError(ErrorCodes.ComError, $"COM error getting the software tree: {comEx.Message}", comEx.ToString()));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting the software tree of '{DeviceName}'", deviceName);
+                return McpToolResults.From(ToolResponse<SoftwareTree>.CreateError(ErrorCodes.TiaError, $"Error getting the software tree: {ex.Message}", ex.ToString()));
             }
         }
 

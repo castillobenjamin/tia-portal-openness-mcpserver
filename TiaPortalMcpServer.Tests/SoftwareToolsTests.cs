@@ -35,6 +35,30 @@ namespace TiaPortalMcpServer.Tests
         }
 
         [Fact]
+        public void ListPaths_NoProject_ReturnsError()
+        {
+            var sessionManager = ServiceProvider.GetRequiredService<TiaPortalSessionManager>();
+            sessionManager.CloseCurrentProject();
+
+            var response = ParseToolResult<object>(_softwareTools.software_paths_list());
+
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+        }
+
+        [Fact]
+        public void GetTree_NoProject_ReturnsError()
+        {
+            var sessionManager = ServiceProvider.GetRequiredService<TiaPortalSessionManager>();
+            sessionManager.CloseCurrentProject();
+
+            var response = ParseToolResult<object>(_softwareTools.software_tree_get("TestDevice"));
+
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+        }
+
+        [Fact]
         public void ListBlocks_NoProject_ReturnsError()
         {
             // Arrange

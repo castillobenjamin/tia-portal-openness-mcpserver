@@ -107,6 +107,8 @@ The block, tag and software tools below (and the advanced block tools) take an o
 - `blocks_list` - List all blocks in a PLC
 - `software_get_block_hierarchy` - Get the call hierarchy of a block
 - `software_units_list` - List the Software Units (standard and safety) of a PLC
+- `software_paths_list` - List every PLC software and Software Unit in the project (including devices in device folders) as `Device` / `Device/Unit` paths, with the `deviceName` and `unitName` to pass to the other tools
+- `software_tree_get` - Get the project tree of a PLC or Software Unit: program blocks, PLC data types, tag tables and external sources as nested groups with group paths and object counts (`includeItems=false` for groups only)
 - `tags_create` - Create PLC tags
 - `tags_list` - List PLC tags
 - `tags_tagtable_create` - Create tag tables

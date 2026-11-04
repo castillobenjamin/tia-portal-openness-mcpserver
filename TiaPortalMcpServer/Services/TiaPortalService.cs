@@ -355,15 +355,134 @@ namespace TiaPortalMcpServer.Services
             return (PlcUnitBase?)unitGroup.Units.Find(unitName) ?? unitGroup.SafetyUnits.Find(unitName);
         }
 
-        private Device? GetDevice(Project project, string devicePath)
+        /// <summary>
+        /// Finds a device by exact name at the top level, among the ungrouped devices or in any device folder.
+        /// </summary>
+        private Device? GetDevice(Project project, string deviceName)
         {
             if (project == null)
             {
                 return null;
             }
 
-            // Simplified: assume devicePath is device name
-            return project.Devices.FirstOrDefault(d => d.Name == devicePath);
+            foreach (var entry in GetDevicesWithGroupPaths(project))
+            {
+                if (entry.Device.Name == deviceName)
+                {
+                    return entry.Device;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Every device of the project with the device folder it is in ("Line 1/Cell A"; empty at the top level).
+        /// Covers top-level devices, ungrouped devices and devices in user folders.
+        /// </summary>
+        public List<(Device Device, string GroupPath)> GetDevicesWithGroupPaths(Project project)
+        {
+            var devices = new List<(Device Device, string GroupPath)>();
+            var seen = new HashSet<Device>();
+
+            foreach (Device device in project.Devices)
+            {
+                if (seen.Add(device))
+                {
+                    devices.Add((device, string.Empty));
+                }
+            }
+
+            var ungrouped = project.UngroupedDevicesGroup;
+            if (ungrouped != null)
+            {
+                foreach (Device device in ungrouped.Devices)
+                {
+                    if (seen.Add(device))
+                    {
+                        devices.Add((device, ungrouped.Name));
+                    }
+                }
+            }
+
+            foreach (DeviceUserGroup group in project.DeviceGroups)
+            {
+                CollectDevicesInGroup(group, group.Name, devices, seen);
+            }
+
+            return devices;
+        }
+
+        /// <summary>
+        /// Every PLC software in the project, followed by its standard and safety Software Units.
+        /// </summary>
+        public List<PlcSoftwarePathInfo> GetPlcSoftwarePaths(Project project)
+        {
+            var paths = new List<PlcSoftwarePathInfo>();
+            foreach (var entry in GetDevicesWithGroupPaths(project))
+            {
+                var plcSoftware = GetPlcSoftware(entry.Device);
+                if (plcSoftware == null)
+                {
+                    continue;
+                }
+
+                var units = GetSoftwareUnits(plcSoftware);
+                paths.Add(new PlcSoftwarePathInfo
+                {
+                    Path = PlcSoftwarePathInfo.FormatPath(entry.Device.Name, null),
+                    DeviceName = entry.Device.Name,
+                    Kind = PlcSoftwarePathInfo.KindPlcSoftware,
+                    SoftwareName = plcSoftware.Name,
+                    DeviceGroupPath = entry.GroupPath,
+                    UnitsSupported = units != null
+                });
+
+                if (units != null)
+                {
+                    paths.AddRange(GetUnitPaths(entry.Device.Name, entry.GroupPath, plcSoftware, units));
+                }
+            }
+
+            return paths;
+        }
+
+        /// <summary>
+        /// Path entries for the given Software Units of a device's PLC software.
+        /// </summary>
+        public List<PlcSoftwarePathInfo> GetUnitPaths(string deviceName, string deviceGroupPath, PlcSoftware plcSoftware, IEnumerable<PlcUnitBase> units)
+        {
+            var paths = new List<PlcSoftwarePathInfo>();
+            foreach (var unit in units)
+            {
+                paths.Add(new PlcSoftwarePathInfo
+                {
+                    Path = PlcSoftwarePathInfo.FormatPath(deviceName, unit.Name),
+                    DeviceName = deviceName,
+                    UnitName = unit.Name,
+                    Kind = unit is PlcSafetyUnit ? PlcSoftwarePathInfo.KindSafetyUnit : PlcSoftwarePathInfo.KindSoftwareUnit,
+                    SoftwareName = plcSoftware.Name,
+                    DeviceGroupPath = deviceGroupPath
+                });
+            }
+
+            return paths;
+        }
+
+        private static void CollectDevicesInGroup(DeviceUserGroup group, string groupPath, List<(Device Device, string GroupPath)> devices, HashSet<Device> seen)
+        {
+            foreach (Device device in group.Devices)
+            {
+                if (seen.Add(device))
+                {
+                    devices.Add((device, groupPath));
+                }
+            }
+
+            foreach (DeviceUserGroup child in group.Groups)
+            {
+                CollectDevicesInGroup(child, ExchangePaths.CombineGroupPath(groupPath, child.Name), devices, seen);
+            }
         }
 
         private void GetRecursiveBlocks(PlcBlockGroup blockGroup, List<PlcBlock> blocks, string regexName)
