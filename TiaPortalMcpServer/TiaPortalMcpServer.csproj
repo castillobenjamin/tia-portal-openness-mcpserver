@@ -5,7 +5,9 @@
     <TargetFramework>net48</TargetFramework>
     <LangVersion>Latest</LangVersion>
     <Nullable>enable</Nullable>
-    <SiemensEngineeringCopyLocal>true</SiemensEngineeringCopyLocal>
+    <!-- Openness V21 refuses to connect if Siemens.Engineering*.dll load from the app folder;
+         the Openness Resolver loads them from the TIA Portal install at runtime. -->
+    <SiemensEngineeringCopyLocal>false</SiemensEngineeringCopyLocal>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,7 +26,7 @@
     <PackageReference Include="Serilog.Sinks.Console" Version="5.0.1" />
     <PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
     <PackageReference Include="Siemens.Collaboration.Net.OperatingSystem.Windows" Version="3.0.1725521661" />
-    <PackageReference Include="Siemens.Collaboration.Net.TiaPortal.Openness.Resolver" Version="1.1.1725480302" />
+    <PackageReference Include="Siemens.Collaboration.Net.TiaPortal.Openness.Resolver" Version="2.0.1765367256" />
     <PackageReference Include="Siemens.Collaboration.Net.TiaPortal.Packages.Openness" Version="21.0.1765349347" />
   </ItemGroup>
 
