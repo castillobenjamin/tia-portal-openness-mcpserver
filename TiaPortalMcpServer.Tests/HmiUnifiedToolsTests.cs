@@ -75,6 +75,48 @@ namespace TiaPortalMcpServer.Tests
         }
 
         [Fact]
+        public void TagsExport_MissingDirectory_ReturnsInvalidParameter()
+        {
+            var response = ParseToolResult<object>(_tools.hmi_unified_tags_export("TabletHMI", "C:\\does-not-exist\\hmi-tags"));
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+        }
+
+        [Fact]
+        public void TagsExport_NoProject_ReturnsError()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var response = ParseToolResult<object>(_tools.hmi_unified_tags_export("TabletHMI", files.Root));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+            }
+        }
+
+        [Fact]
+        public void TagsImport_EmptyDirectory_ReturnsInvalidParameter()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var response = ParseToolResult<object>(_tools.hmi_unified_tags_import("TabletHMI", files.Root, dryRun: true));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+            }
+        }
+
+        [Fact]
+        public void TagsImport_NoProject_ReturnsError()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                files.Write("HmiTags.xlsx", "x");
+                var response = ParseToolResult<object>(_tools.hmi_unified_tags_import("TabletHMI", files.Root, dryRun: true));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+            }
+        }
+
+        [Fact]
         public void TextListsExport_PathInFileName_ReturnsInvalidParameter()
         {
             var response = ParseToolResult<object>(_tools.hmi_unified_textlists_export("TabletHMI", "C:\\temp", "..\\TextLists.xlsx"));

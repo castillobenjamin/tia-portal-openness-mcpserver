@@ -28,7 +28,7 @@ namespace TiaPortalMcpServer
     public class HmiUnifiedTools
     {
         private const string DeviceDescription = "Name of the device with WinCC Unified HMI software (panel or PC runtime), as listed by hmi_unified_software_list";
-        private const string AttributesDescription = "JSON object of attribute names and values, e.g. {\"Left\": 20, \"Top\": 40, \"Width\": 160, \"Height\": 40, \"Text\": \"Start\"}. Numbers, booleans, enum member names and strings are converted to the attribute's type. For multilingual texts such as Text, a plain value sets every language and 'de-DE:Start' sets one";
+        private const string AttributesDescription = "JSON object of attribute names and values, e.g. {\"Left\": 20, \"Top\": 40, \"Width\": 160, \"Height\": 40, \"Text\": \"Start\"}. Numbers, booleans, enum member names, colors ('#RRGGBB', '#AARRGGBB', 'R,G,B', 'A,R,G,B' or a name such as 'Red') and strings are converted to the attribute's type. For multilingual texts such as Text, a plain value sets every language and 'de-DE:Start' sets one";
         private const string SaveNote = " Changes are made in the open project; call projects_save to persist them.";
 
         private readonly ILogger<HmiUnifiedTools> _logger;
@@ -710,6 +710,113 @@ namespace TiaPortalMcpServer
                 }
 
                 result.Changes.Add($"{software.HmiTextLists.Count} text lists after the import");
+                return ToolResponse<HmiOperationResult>.CreateSuccess(result);
+            });
+        }
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export HMI tags of a WinCC Unified HMI to files in exportPath (TIA Portal's HMI tag exchange format): all tags, or a single tag by name. Returns the written files. Prerequisites: Project must be open, device must have WinCC Unified HMI software, exportPath must exist. Use hmi_unified_tags_import to reverse this operation.")]
+        public CallToolResult hmi_unified_tags_export(
+            [Description(DeviceDescription)] string deviceName,
+            [Description("Directory to write the export files to")] string exportPath,
+            [Description("Name of a single HMI tag to export. Leave empty to export all tags")] string tagName = "")
+        {
+            _logger.LogInformation("hmi_unified_tags_export called with deviceName='{DeviceName}', exportPath='{ExportPath}', tagName='{TagName}'", deviceName, exportPath, tagName);
+            return Run<HmiOperationResult>("hmi_unified_tags_export", () =>
+            {
+                if (string.IsNullOrWhiteSpace(exportPath) || !Directory.Exists(exportPath))
+                {
+                    return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"Export directory '{exportPath}' does not exist");
+                }
+
+                var software = ResolveSoftware(deviceName, out var error);
+                if (software == null)
+                {
+                    return ToolResponse<HmiOperationResult>.CreateError(error.Code, error.Message);
+                }
+
+                var directory = new DirectoryInfo(exportPath);
+                var name = (tagName ?? string.Empty).Trim();
+                IEnumerable<FileInfo>? files;
+                string summary;
+                if (name.Length == 0)
+                {
+                    files = software.Tags.Export(directory);
+                    summary = $"Exported {software.Tags.Count} HMI tags";
+                }
+                else
+                {
+                    if (software.Tags.Find(name) == null)
+                    {
+                        return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"HMI tag '{name}' not found on '{deviceName}'");
+                    }
+
+                    files = software.Tags.Export(directory, name);
+                    summary = $"Exported HMI tag '{name}'";
+                }
+
+                var result = new HmiOperationResult
+                {
+                    DeviceName = deviceName,
+                    Target = name.Length == 0 ? "HMI tags" : name,
+                    Files = files?.Select(f => f.FullName).ToList() ?? new List<string>()
+                };
+                result.Changes.Add(summary);
+                return ToolResponse<HmiOperationResult>.CreateSuccess(result);
+            });
+        }
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Import HMI tags into a WinCC Unified HMI from files written by hmi_unified_tags_export (or edited from them) in importPath: all of them, or a single tag by name. Existing tags of the same name are updated. Prerequisites: Project must be open, device must have WinCC Unified HMI software, importPath must exist. Use dryRun=true to see the files without importing." + SaveNote)]
+        public CallToolResult hmi_unified_tags_import(
+            [Description(DeviceDescription)] string deviceName,
+            [Description("Directory containing the files written by hmi_unified_tags_export")] string importPath,
+            [Description("Name of a single HMI tag to import. Leave empty to import all tags in the directory")] string tagName = "",
+            [Description("If true, only validate without importing")] bool dryRun = false)
+        {
+            _logger.LogInformation("hmi_unified_tags_import called with deviceName='{DeviceName}', importPath='{ImportPath}', tagName='{TagName}', dryRun={DryRun}", deviceName, importPath, tagName, dryRun);
+            return Run<HmiOperationResult>("hmi_unified_tags_import", () =>
+            {
+                if (string.IsNullOrWhiteSpace(importPath) || !Directory.Exists(importPath))
+                {
+                    return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"Import directory '{importPath}' does not exist");
+                }
+
+                var directory = new DirectoryInfo(importPath);
+                var files = directory.GetFiles().Select(f => f.FullName).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
+                if (files.Count == 0)
+                {
+                    return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"Import directory '{importPath}' contains no files");
+                }
+
+                var software = ResolveSoftware(deviceName, out var error);
+                if (software == null)
+                {
+                    return ToolResponse<HmiOperationResult>.CreateError(error.Code, error.Message);
+                }
+
+                var name = (tagName ?? string.Empty).Trim();
+                var result = new HmiOperationResult
+                {
+                    DeviceName = deviceName,
+                    Target = name.Length == 0 ? "HMI tags" : name,
+                    DryRun = dryRun,
+                    Files = files
+                };
+                result.Changes.Add(name.Length == 0
+                    ? $"Import HMI tags from '{directory.FullName}'"
+                    : $"Import HMI tag '{name}' from '{directory.FullName}'");
+                if (dryRun)
+                {
+                    return ToolResponse<HmiOperationResult>.CreateSuccess(result);
+                }
+
+                var before = software.Tags.Count;
+                var imported = name.Length == 0 ? software.Tags.Import(directory) : software.Tags.Import(directory, name);
+                if (!imported)
+                {
+                    return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.TiaError, $"TIA Portal reported that importing HMI tags from '{directory.FullName}' failed");
+                }
+
+                result.Changes.Add($"{software.Tags.Count} HMI tags after the import ({before} before)");
                 return ToolResponse<HmiOperationResult>.CreateSuccess(result);
             });
         }

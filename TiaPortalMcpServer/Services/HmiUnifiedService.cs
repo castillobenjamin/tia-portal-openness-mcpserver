@@ -477,7 +477,7 @@ namespace TiaPortalMcpServer.Services
                 var value = ReadAttribute(target, info.Name);
                 if (value != null && AttributeValueConverter.IsSimple(value.GetType()))
                 {
-                    attributes[info.Name] = value is Enum ? value.ToString() : value;
+                    attributes[info.Name] = AttributeValueConverter.ToClientValue(value);
                 }
             }
 
@@ -486,7 +486,7 @@ namespace TiaPortalMcpServer.Services
 
         private static string Format(object? value)
         {
-            return value == null ? "(none)" : Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? "(none)";
+            return value == null ? "(none)" : Convert.ToString(AttributeValueConverter.ToClientValue(value), System.Globalization.CultureInfo.InvariantCulture) ?? "(none)";
         }
     }
 }

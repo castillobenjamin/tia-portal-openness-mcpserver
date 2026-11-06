@@ -1,4 +1,5 @@
 using System;
+using System.Drawing;
 using TiaPortalMcpServer.Services;
 using Xunit;
 
@@ -46,6 +47,55 @@ namespace TiaPortalMcpServer.Tests
         {
             Assert.False(AttributeValueConverter.TryConvert(text, type, out _, out var error));
             Assert.Contains(expectedError, error);
+        }
+
+        [Theory]
+        [InlineData("#2D323C", 255, 45, 50, 60)]
+        [InlineData("#802d323c", 128, 45, 50, 60)]
+        [InlineData("45, 50, 60", 255, 45, 50, 60)]
+        [InlineData("128,45,50,60", 128, 45, 50, 60)]
+        [InlineData("red", 255, 255, 0, 0)]
+        [InlineData("Transparent", 0, 255, 255, 255)]
+        public void TryConvert_Color_AcceptsHexChannelsAndNames(string text, int a, int r, int g, int b)
+        {
+            Assert.True(AttributeValueConverter.TryConvert(text, typeof(Color), out var value, out var error));
+            Assert.Equal(string.Empty, error);
+            var color = Assert.IsType<Color>(value);
+            Assert.Equal(Color.FromArgb(a, r, g, b).ToArgb(), color.ToArgb());
+        }
+
+        [Theory]
+        [InlineData("#12345")]
+        [InlineData("#GG0000")]
+        [InlineData("256,0,0")]
+        [InlineData("1,2")]
+        [InlineData("-1,0,0")]
+        [InlineData("Reddish")]
+        [InlineData("")]
+        public void TryConvert_InvalidColor_ReturnsError(string text)
+        {
+            Assert.False(AttributeValueConverter.TryConvert(text, typeof(Color), out _, out var error));
+            Assert.Contains("not a valid color", error);
+        }
+
+        [Fact]
+        public void FormatColor_RoundTripsThroughTryConvert()
+        {
+            Assert.Equal("#2D323C", AttributeValueConverter.FormatColor(Color.FromArgb(255, 45, 50, 60)));
+            Assert.Equal("#802D323C", AttributeValueConverter.FormatColor(Color.FromArgb(128, 45, 50, 60)));
+
+            var original = Color.FromArgb(10, 20, 30, 40);
+            Assert.True(AttributeValueConverter.TryConvert(AttributeValueConverter.FormatColor(original), typeof(Color), out var value, out _));
+            Assert.Equal(original.ToArgb(), ((Color)value).ToArgb());
+        }
+
+        [Fact]
+        public void ToClientValue_FormatsColorsAndEnums()
+        {
+            Assert.True(AttributeValueConverter.IsSimple(typeof(Color)));
+            Assert.Equal("#FF0000", AttributeValueConverter.ToClientValue(Color.Red));
+            Assert.Equal("Center", AttributeValueConverter.ToClientValue(TestAlignment.Center));
+            Assert.Equal(7, AttributeValueConverter.ToClientValue(7));
         }
 
         [Fact]

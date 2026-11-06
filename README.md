@@ -26,7 +26,7 @@ The server provides tool groups for:
 - compilation with each error and warning reported with its object path (`compilation_project`, `compilation_software` incl. single Software Units, `compilation_block`, `compilation_hmi`)
 - file import and validation (`files_read_csv`, `files_read_excel`, `files_list_sheets`, `files_validate_format`, `files_get_info`)
 - HMI targets (`hmi_targets_list`, `hmi_targets_get`, `hmi_targets_validate`)
-- WinCC Unified HMI: screens, screen items, HMI tags, connections and text lists (17 `hmi_unified_*` tools)
+- WinCC Unified HMI: screens, screen items, HMI tags (incl. export/import), connections and text lists (19 `hmi_unified_*` tools)
 - sampling/LLM-assisted operations (`sampling_generate_code`, `sampling_summarize_project`, `sampling_get_suggestions`)
 - elicitation and utility helpers (`utilities_elicit_user_input`, `utilities_get_project_info`, `utilities_list_libraries`)
 

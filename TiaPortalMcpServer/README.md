@@ -207,7 +207,7 @@ The compilation tools return the overall state, error and warning counts, and ea
 - `hmi_targets_validate` - Validate HMI target configuration
 
 ### WinCC Unified HMI
-Tools for WinCC Unified HMI software (Unified Comfort Panels and PC runtimes). Write tools support `dryRun` and change the open project in memory; call `projects_save` to persist the changes. Attributes are passed as a JSON object such as `{"Left": 20, "Top": 40, "Text": "Start"}`; numbers, booleans, enum member names and strings are converted to each attribute's type, and for multilingual texts a plain value sets every language while `de-DE:Start` sets one.
+Tools for WinCC Unified HMI software (Unified Comfort Panels and PC runtimes). Write tools support `dryRun` and change the open project in memory; call `projects_save` to persist the changes. Attributes are passed as a JSON object such as `{"Left": 20, "Top": 40, "Text": "Start"}`; numbers, booleans, enum member names and strings are converted to each attribute's type, colors are given as `#RRGGBB`, `#AARRGGBB`, `R,G,B`, `A,R,G,B` or a name such as `Red` (and are listed as `#RRGGBB` / `#AARRGGBB`), and for multilingual texts a plain value sets every language while `de-DE:Start` sets one.
 
 - `hmi_unified_software_list` - List the WinCC Unified HMI devices with counts of screens, tags, tag tables, connections and text lists
 - `hmi_unified_screens_list` - List screens, including screens in screen groups
@@ -222,6 +222,8 @@ Tools for WinCC Unified HMI software (Unified Comfort Panels and PC runtimes). W
 - `hmi_unified_tags_list` - List HMI tags, optionally by tag table and name/regex
 - `hmi_unified_tag_create` - Create an internal or external (PLC-bound) HMI tag
 - `hmi_unified_tag_delete` - Delete an HMI tag
+- `hmi_unified_tags_export` - Export all HMI tags, or one tag, to files
+- `hmi_unified_tags_import` - Import HMI tags, or one tag, from such files
 - `hmi_unified_connections_list` - List HMI connections
 - `hmi_unified_textlists_list` - List text lists
 - `hmi_unified_textlists_export` - Export all text lists with their entries to a file
