@@ -66,7 +66,7 @@ namespace TiaPortalMcpServer
                 var hmiTargets = new List<object>();
 
                 // Iterate through all devices to find HMI targets
-                foreach (var device in project.Devices)
+                foreach (var device in _sessionManager.PortalService.GetDevicesWithGroupPaths(project).Select(entry => entry.Device))
                 {
                     var hmiSoftware = _hmiTargetAdapter.GetHmiTarget(device);
                     if (hmiSoftware != null)
@@ -153,7 +153,7 @@ namespace TiaPortalMcpServer
                     );
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                var device = _sessionManager.PortalService.FindDevice(project, deviceName);
                 if (device == null)
                 {
                     return McpToolResults.From(
@@ -246,7 +246,7 @@ namespace TiaPortalMcpServer
                     );
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                var device = _sessionManager.PortalService.FindDevice(project, deviceName);
                 if (device == null)
                 {
                     return McpToolResults.From(

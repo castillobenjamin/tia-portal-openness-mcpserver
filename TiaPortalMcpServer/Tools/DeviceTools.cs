@@ -60,11 +60,12 @@ namespace TiaPortalMcpServer
                     );
                 }
 
-                var devices = project.Devices.Select(device => new
+                var devices = _sessionManager.PortalService.GetDevicesWithGroupPaths(project).Select(entry => new
                 {
-                    name = device.Name,
-                    typeName = device.TypeIdentifier,
-                    deviceItemsCount = device.DeviceItems?.Count ?? 0
+                    name = entry.Device.Name,
+                    groupPath = entry.GroupPath,
+                    typeName = entry.Device.TypeIdentifier,
+                    deviceItemsCount = entry.Device.DeviceItems?.Count ?? 0
                 }).ToList();
 
                 _logger.LogInformation("Found {Count} devices in project", devices.Count);
@@ -333,7 +334,7 @@ namespace TiaPortalMcpServer
                     );
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                var device = _sessionManager.PortalService.FindDevice(project, deviceName!);
                 if (device == null)
                 {
                     return McpToolResults.From(
@@ -608,7 +609,7 @@ namespace TiaPortalMcpServer
                     );
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                var device = _sessionManager.PortalService.FindDevice(project, deviceName!);
                 if (device == null)
                 {
                     return McpToolResults.From(
@@ -772,7 +773,7 @@ namespace TiaPortalMcpServer
                     );
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                var device = _sessionManager.PortalService.FindDevice(project, deviceName!);
                 if (device == null)
                 {
                     return McpToolResults.From(
@@ -933,7 +934,7 @@ namespace TiaPortalMcpServer
                     );
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                var device = _sessionManager.PortalService.FindDevice(project, deviceName!);
                 if (device == null)
                 {
                     return McpToolResults.From(
@@ -1081,7 +1082,7 @@ namespace TiaPortalMcpServer
                     );
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                var device = _sessionManager.PortalService.FindDevice(project, deviceName!);
                 if (device == null)
                 {
                     return McpToolResults.From(
