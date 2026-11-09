@@ -213,6 +213,7 @@ Tools for WinCC Unified HMI software (Unified Comfort Panels and PC runtimes). W
 - `hmi_unified_screens_list` - List screens, including screens in screen groups
 - `hmi_unified_screen_create` - Create a screen, optionally in a screen group
 - `hmi_unified_screen_delete` - Delete a screen
+- `hmi_unified_screens_snapshot` - Write a deterministic JSON review snapshot per screen for git diffs (see below)
 - `hmi_unified_screen_items_list` - List the items of a screen with type, position and size (`includeAttributes=true` for all simple attributes)
 - `hmi_unified_screen_item_types_list` - List the screen item types that can be created
 - `hmi_unified_screen_item_create` - Create a screen item and set its attributes
@@ -236,6 +237,16 @@ Tools for WinCC Unified HMI software (Unified Comfort Panels and PC runtimes). W
 - `hmi_unified_scripts_list` - List global script modules
 - `hmi_unified_scripts_export` - Export all script modules, or one module, to files
 - `hmi_unified_scripts_import` - Import script modules, or one file, from such files
+
+#### Screen snapshots
+WinCC Unified screens have no Openness export, so `hmi_unified_screens_snapshot(deviceName, exportPath, screenName = "")` reads them through the object model and writes one file per screen to `<exportPath>\Screens\<screen group path>\<screen>.json`, for review in git (snapshots cannot be imported):
+
+- Every readable property of the screen and of each item, with an `@type` key per object; items stay in their z-order.
+- Parts such as fonts as nested objects; dynamizations keyed by property, event handlers keyed by event, faceplate interfaces keyed by property; empty collections are left out.
+- Colors as `#AARRGGBB`, enums by member name, multilingual texts as `{ "<culture>": "<text>" }`.
+- Script code in sidecar files below `<screen>.scripts\`: `<item>.<event>.js` for event handlers (the screen's own events use the screen name), `<item>.<property>.dyn.js` for script dynamizations, with `.global` before the extension for global definition areas. The JSON references them as `{ "file": "<screen>.scripts/<file>" }`.
+- Properties that cannot be read are listed per object under `@unreadable` and in the tool result.
+- Sorted keys, UTF-8 without BOM, LF line endings and a final newline, so an unchanged screen gives identical files; files whose content is unchanged are not rewritten. Files of deleted or renamed screens and scripts are not removed; the tool returns every file of the run.
 
 ### Sampling (LLM-assisted)
 - `sampling_generate_code` - Generate code with LLM assistance

@@ -33,6 +33,36 @@ namespace TiaPortalMcpServer.Tests
         }
 
         [Fact]
+        public void ScreensSnapshot_MissingDirectory_ReturnsInvalidParameter()
+        {
+            var response = ParseToolResult<object>(_tools.hmi_unified_screens_snapshot("TabletHMI", "C:\\does-not-exist\\hmi-snapshot"));
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+        }
+
+        [Fact]
+        public void ScreensSnapshot_InvalidRegex_ReturnsInvalidParameter()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var response = ParseToolResult<object>(_tools.hmi_unified_screens_snapshot("TabletHMI", files.Root, "Main(["));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+            }
+        }
+
+        [Fact]
+        public void ScreensSnapshot_NoProject_ReturnsError()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var response = ParseToolResult<object>(_tools.hmi_unified_screens_snapshot("TabletHMI", files.Root));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+            }
+        }
+
+        [Fact]
         public void ScreenItemTypesList_ReturnsCommonTypes()
         {
             var response = ParseToolResult<Newtonsoft.Json.Linq.JObject>(_tools.hmi_unified_screen_item_types_list());

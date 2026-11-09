@@ -20,7 +20,7 @@ using TiaPortalMcpServer.Services;
 namespace TiaPortalMcpServer
 {
     /// <summary>
-    /// WinCC Unified HMI tools: screens, screen items, HMI tags, connections, text lists, graphic lists, system text lists and script modules.
+    /// WinCC Unified HMI tools: screens (including review snapshots), screen items, HMI tags, connections, text lists, graphic lists, system text lists and script modules.
     /// </summary>
     /// <remarks>
     /// Write tools change the open project in memory; call projects_save to persist the changes.
@@ -30,6 +30,7 @@ namespace TiaPortalMcpServer
     {
         private const string DeviceDescription = "Name of the device with WinCC Unified HMI software (panel or PC runtime), as listed by hmi_unified_software_list";
         private const string AttributesDescription = "JSON object of attribute names and values, e.g. {\"Left\": 20, \"Top\": 40, \"Width\": 160, \"Height\": 40, \"Text\": \"Start\"}. Numbers, booleans, enum member names, colors ('#RRGGBB', '#AARRGGBB', 'R,G,B', 'A,R,G,B' or a name such as 'Red') and strings are converted to the attribute's type. For multilingual texts such as Text, a plain value sets every language and 'de-DE:Start' sets one";
+        private const int MaxReportedUnreadable = 100;
         private const string SaveNote = " Changes are made in the open project; call projects_save to persist them.";
 
         private readonly ILogger<HmiUnifiedTools> _logger;
@@ -183,6 +184,71 @@ namespace TiaPortalMcpServer
                 }
 
                 return ToolResponse<HmiOperationResult>.CreateSuccess(result);
+            });
+        }
+
+        [McpServerTool(Destructive = false, Idempotent = true, OpenWorld = true), Description("Write a review snapshot of WinCC Unified screens for diffing in git: one JSON file per screen at <exportPath>\\Screens\\<screen group path>\\<screen>.json with every readable property of the screen and of its items (in z-order), including parts such as fonts, dynamizations keyed by property, event handlers keyed by event and faceplate interfaces. Colors are #AARRGGBB, enums member names, multilingual texts { \"<culture>\": \"<text>\" }. Script code goes to sidecar files in <screen>.scripts\\ (<item>.<event>.js, <item>.<property>.dyn.js, and .global.js for global definition areas) referenced as { \"file\": ... }. Output is deterministic: sorted keys, UTF-8 without BOM, LF line endings; unchanged files are not rewritten. Properties that cannot be read are listed under \"@unreadable\". Returns every file of this run; files of deleted or renamed screens and scripts are not removed. Snapshots cannot be imported. The project is not changed. Prerequisites: Project must be open, device must have WinCC Unified HMI software, exportPath must exist.")]
+        public CallToolResult hmi_unified_screens_snapshot(
+            [Description(DeviceDescription)] string deviceName,
+            [Description("Directory to write the snapshot to; the files go to its Screens subdirectory")] string exportPath,
+            [Description("Screen name filter: plain text matches screen names containing it (case-insensitive), otherwise a regular expression. Leave empty for all screens")] string screenName = "")
+        {
+            _logger.LogInformation("hmi_unified_screens_snapshot called with deviceName='{DeviceName}', exportPath='{ExportPath}', screenName='{ScreenName}'", deviceName, exportPath, screenName);
+            return Run<HmiScreenSnapshotResult>("hmi_unified_screens_snapshot", () =>
+            {
+                if (string.IsNullOrWhiteSpace(exportPath) || !Directory.Exists(exportPath))
+                {
+                    return ToolResponse<HmiScreenSnapshotResult>.CreateError(ErrorCodes.InvalidParameter, $"Export directory '{exportPath}' does not exist");
+                }
+
+                if (!NameFilter.TryValidate(screenName, out var filterError))
+                {
+                    return ToolResponse<HmiScreenSnapshotResult>.CreateError(ErrorCodes.InvalidParameter, filterError);
+                }
+
+                var software = ResolveSoftware(deviceName, out var error);
+                if (software == null)
+                {
+                    return ToolResponse<HmiScreenSnapshotResult>.CreateError(error.Code, error.Message);
+                }
+
+                var result = new HmiScreenSnapshotResult
+                {
+                    DeviceName = deviceName,
+                    SnapshotDirectory = Path.Combine(Path.GetFullPath(exportPath), "Screens")
+                };
+                var unreadable = new List<string>();
+
+                foreach (var entry in HmiUnifiedService.GetScreensWithGroupPaths(software))
+                {
+                    if (!NameFilter.IsMatch(entry.Screen.Name, screenName))
+                    {
+                        continue;
+                    }
+
+                    var directory = ExchangePaths.ToDirectory(result.SnapshotDirectory, entry.GroupPath);
+                    var fileName = ExchangePaths.ToFileName(entry.Screen.Name);
+                    var serializer = new HmiSnapshotSerializer(fileName + ".scripts", HmiUnifiedService.ConvertSnapshotValue);
+                    var json = HmiSnapshotSerializer.ToJson(serializer.Serialize(entry.Screen, entry.Screen.Name));
+
+                    WriteSnapshotFile(Path.Combine(directory, fileName + ".json"), json, result);
+                    foreach (var sidecar in serializer.Sidecars)
+                    {
+                        WriteSnapshotFile(Path.Combine(directory, sidecar.RelativePath.Replace('/', Path.DirectorySeparatorChar)), sidecar.Content, result);
+                    }
+
+                    unreadable.AddRange(serializer.Unreadable);
+                    result.ScreenCount++;
+                }
+
+                result.Files = result.Files.OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
+                result.UnreadableCount = unreadable.Count;
+                if (unreadable.Count > 0)
+                {
+                    result.Unreadable = unreadable.Take(MaxReportedUnreadable).ToList();
+                }
+
+                return ToolResponse<HmiScreenSnapshotResult>.CreateSuccess(result);
             });
         }
 
@@ -1234,6 +1300,20 @@ namespace TiaPortalMcpServer
             }
 
             return null;
+        }
+
+        private static void WriteSnapshotFile(string path, string content, HmiScreenSnapshotResult result)
+        {
+            if (HmiSnapshotSerializer.WriteIfChanged(path, content))
+            {
+                result.WrittenCount++;
+            }
+            else
+            {
+                result.UnchangedCount++;
+            }
+
+            result.Files.Add(path);
         }
 
         private static bool TryValidateFileName(string fileName, out string errorMessage)

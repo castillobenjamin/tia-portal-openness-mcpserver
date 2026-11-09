@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Newtonsoft.Json.Linq;
 using Siemens.Engineering;
 using Siemens.Engineering.HmiUnified;
 using Siemens.Engineering.HmiUnified.HmiTags;
@@ -341,6 +342,26 @@ namespace TiaPortalMcpServer.Services
             {
                 throw ex.InnerException;
             }
+        }
+
+        /// <summary>
+        /// Converts the Openness values <see cref="HmiSnapshotSerializer"/> does not know: a multilingual text becomes
+        /// { "&lt;culture&gt;": "&lt;text&gt;" } with one entry per project language. Returns null for every other value.
+        /// </summary>
+        public static JToken? ConvertSnapshotValue(object value)
+        {
+            if (!(value is MultilingualText text))
+            {
+                return null;
+            }
+
+            var result = new JObject();
+            foreach (MultilingualTextItem item in text.Items)
+            {
+                result[item.Language?.Culture?.Name ?? string.Empty] = item.Text ?? string.Empty;
+            }
+
+            return result;
         }
 
         public static string ToTypeName(Type type)
