@@ -31,6 +31,12 @@ namespace TiaPortalMcpServer.Models
 
         [JsonProperty("textListCount")]
         public int TextListCount { get; set; }
+
+        [JsonProperty("graphicListCount")]
+        public int GraphicListCount { get; set; }
+
+        [JsonProperty("systemTextListCount")]
+        public int SystemTextListCount { get; set; }
     }
 
     public class HmiScreenInfo

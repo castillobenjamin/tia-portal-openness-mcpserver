@@ -19,7 +19,7 @@ using TiaPortalMcpServer.Services;
 namespace TiaPortalMcpServer
 {
     /// <summary>
-    /// WinCC Unified HMI tools: screens, screen items, HMI tags, connections and text lists.
+    /// WinCC Unified HMI tools: screens, screen items, HMI tags, connections, text lists, graphic lists and system text lists.
     /// </summary>
     /// <remarks>
     /// Write tools change the open project in memory; call projects_save to persist the changes.
@@ -72,7 +72,9 @@ namespace TiaPortalMcpServer
                         TagCount = software.Tags.Count,
                         TagTableCount = HmiUnifiedService.GetTagTablesWithGroupPaths(software).Count,
                         ConnectionCount = software.Connections.Count,
-                        TextListCount = software.HmiTextLists.Count
+                        TextListCount = software.HmiTextLists.Count,
+                        GraphicListCount = software.HmiGraphicLists.Count,
+                        SystemTextListCount = software.HmiSystemTextLists.Count
                     });
                 }
 
@@ -641,33 +643,9 @@ namespace TiaPortalMcpServer
         {
             _logger.LogInformation("hmi_unified_textlists_export called with deviceName='{DeviceName}', exportPath='{ExportPath}', fileName='{FileName}'", deviceName, exportPath, fileName);
             return Run<HmiOperationResult>("hmi_unified_textlists_export", () =>
-            {
-                if (!TryValidateFileName(fileName, out var fileError))
-                {
-                    return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, fileError);
-                }
-
-                if (!Directory.Exists(exportPath))
-                {
-                    return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"Export directory '{exportPath}' does not exist");
-                }
-
-                var software = ResolveSoftware(deviceName, out var error);
-                if (software == null)
-                {
-                    return ToolResponse<HmiOperationResult>.CreateError(error.Code, error.Message);
-                }
-
-                var files = software.HmiTextLists.Export(new DirectoryInfo(exportPath), fileName.Trim());
-                var result = new HmiOperationResult
-                {
-                    DeviceName = deviceName,
-                    Target = "text lists",
-                    Files = files?.Select(f => f.FullName).ToList() ?? new List<string>()
-                };
-                result.Changes.Add($"Exported {software.HmiTextLists.Count} text lists");
-                return ToolResponse<HmiOperationResult>.CreateSuccess(result);
-            });
+                ExportListFile(deviceName, exportPath, fileName, "text lists",
+                    (software, directory, name) => software.HmiTextLists.Export(directory, name),
+                    software => software.HmiTextLists.Count));
         }
 
         [McpServerTool(Destructive = true, OpenWorld = true), Description("Import text lists with their entries into a WinCC Unified HMI from a file written by hmi_unified_textlists_export (or edited from one). Existing text lists of the same name are updated. Prerequisites: Project must be open, device must have WinCC Unified HMI software, the file must exist in importPath. Use dryRun=true to check the file without importing." + SaveNote)]
@@ -679,39 +657,86 @@ namespace TiaPortalMcpServer
         {
             _logger.LogInformation("hmi_unified_textlists_import called with deviceName='{DeviceName}', importPath='{ImportPath}', fileName='{FileName}', dryRun={DryRun}", deviceName, importPath, fileName, dryRun);
             return Run<HmiOperationResult>("hmi_unified_textlists_import", () =>
+                ImportListFile(deviceName, importPath, fileName, dryRun, "text lists",
+                    (software, directory, name) => software.HmiTextLists.Import(directory, name),
+                    software => software.HmiTextLists.Count));
+        }
+
+        [McpServerTool(ReadOnly = true, Idempotent = true), Description("List the graphic lists of a WinCC Unified HMI by name. The entries of graphic lists are read and written with hmi_unified_graphiclists_export and hmi_unified_graphiclists_import. Prerequisites: Project must be open, device must have WinCC Unified HMI software.")]
+        public CallToolResult hmi_unified_graphiclists_list(
+            [Description(DeviceDescription)] string deviceName)
+        {
+            _logger.LogInformation("hmi_unified_graphiclists_list called with deviceName='{DeviceName}'", deviceName);
+            return Run<object>("hmi_unified_graphiclists_list", () =>
             {
-                if (!TryValidateFileName(fileName, out var fileError))
-                {
-                    return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, fileError);
-                }
-
-                var file = new FileInfo(Path.Combine(importPath, fileName.Trim()));
-                if (!file.Exists)
-                {
-                    return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"File '{file.FullName}' not found");
-                }
-
                 var software = ResolveSoftware(deviceName, out var error);
                 if (software == null)
                 {
-                    return ToolResponse<HmiOperationResult>.CreateError(error.Code, error.Message);
+                    return ToolResponse<object>.CreateError(error.Code, error.Message);
                 }
 
-                var result = new HmiOperationResult { DeviceName = deviceName, Target = "text lists", DryRun = dryRun, Files = new List<string> { file.FullName } };
-                result.Changes.Add($"Import text lists from '{file.FullName}'");
-                if (dryRun)
+                var names = new List<string>();
+                foreach (HmiGraphicList graphicList in software.HmiGraphicLists)
                 {
-                    return ToolResponse<HmiOperationResult>.CreateSuccess(result);
+                    names.Add(graphicList.Name);
                 }
 
-                if (!software.HmiTextLists.Import(file.Directory!, file.Name))
-                {
-                    return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.TiaError, $"TIA Portal reported that importing '{file.FullName}' failed");
-                }
-
-                result.Changes.Add($"{software.HmiTextLists.Count} text lists after the import");
-                return ToolResponse<HmiOperationResult>.CreateSuccess(result);
+                return ToolResponse<object>.CreateSuccess(new { deviceName, count = names.Count, graphicLists = names });
             });
+        }
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export all graphic lists of a WinCC Unified HMI, with their entries, to a file in exportPath (TIA Portal's graphic list exchange format). Returns the written files. Prerequisites: Project must be open, device must have WinCC Unified HMI software, exportPath must exist. Use hmi_unified_graphiclists_import to reverse this operation.")]
+        public CallToolResult hmi_unified_graphiclists_export(
+            [Description(DeviceDescription)] string deviceName,
+            [Description("Directory to write the export file to")] string exportPath,
+            [Description("Name of the export file, e.g. 'GraphicLists.xlsx'")] string fileName)
+        {
+            _logger.LogInformation("hmi_unified_graphiclists_export called with deviceName='{DeviceName}', exportPath='{ExportPath}', fileName='{FileName}'", deviceName, exportPath, fileName);
+            return Run<HmiOperationResult>("hmi_unified_graphiclists_export", () =>
+                ExportListFile(deviceName, exportPath, fileName, "graphic lists",
+                    (software, directory, name) => software.HmiGraphicLists.Export(directory, name),
+                    software => software.HmiGraphicLists.Count));
+        }
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Import graphic lists with their entries into a WinCC Unified HMI from a file written by hmi_unified_graphiclists_export (or edited from one). Existing graphic lists of the same name are updated. Prerequisites: Project must be open, device must have WinCC Unified HMI software, the file must exist in importPath. Use dryRun=true to check the file without importing." + SaveNote)]
+        public CallToolResult hmi_unified_graphiclists_import(
+            [Description(DeviceDescription)] string deviceName,
+            [Description("Directory containing the import file")] string importPath,
+            [Description("Name of the import file, e.g. 'GraphicLists.xlsx'")] string fileName,
+            [Description("If true, only validate without importing")] bool dryRun = false)
+        {
+            _logger.LogInformation("hmi_unified_graphiclists_import called with deviceName='{DeviceName}', importPath='{ImportPath}', fileName='{FileName}', dryRun={DryRun}", deviceName, importPath, fileName, dryRun);
+            return Run<HmiOperationResult>("hmi_unified_graphiclists_import", () =>
+                ImportListFile(deviceName, importPath, fileName, dryRun, "graphic lists",
+                    (software, directory, name) => software.HmiGraphicLists.Import(directory, name),
+                    software => software.HmiGraphicLists.Count));
+        }
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export all system text lists of a WinCC Unified HMI (the text lists TIA Portal provides itself, not the user text lists of hmi_unified_textlists_*), with their entries, to a file in exportPath. Returns the written files. Prerequisites: Project must be open, device must have WinCC Unified HMI software, exportPath must exist. Use hmi_unified_systemtextlists_import to reverse this operation.")]
+        public CallToolResult hmi_unified_systemtextlists_export(
+            [Description(DeviceDescription)] string deviceName,
+            [Description("Directory to write the export file to")] string exportPath,
+            [Description("Name of the export file, e.g. 'SystemTextLists.xlsx'")] string fileName)
+        {
+            _logger.LogInformation("hmi_unified_systemtextlists_export called with deviceName='{DeviceName}', exportPath='{ExportPath}', fileName='{FileName}'", deviceName, exportPath, fileName);
+            return Run<HmiOperationResult>("hmi_unified_systemtextlists_export", () =>
+                ExportListFile(deviceName, exportPath, fileName, "system text lists",
+                    (software, directory, name) => software.HmiSystemTextLists.Export(directory, name),
+                    software => software.HmiSystemTextLists.Count));
+        }
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Import system text lists into a WinCC Unified HMI from a file written by hmi_unified_systemtextlists_export (or edited from one), updating their texts. Prerequisites: Project must be open, device must have WinCC Unified HMI software, the file must exist in importPath. Use dryRun=true to check the file without importing." + SaveNote)]
+        public CallToolResult hmi_unified_systemtextlists_import(
+            [Description(DeviceDescription)] string deviceName,
+            [Description("Directory containing the import file")] string importPath,
+            [Description("Name of the import file, e.g. 'SystemTextLists.xlsx'")] string fileName,
+            [Description("If true, only validate without importing")] bool dryRun = false)
+        {
+            _logger.LogInformation("hmi_unified_systemtextlists_import called with deviceName='{DeviceName}', importPath='{ImportPath}', fileName='{FileName}', dryRun={DryRun}", deviceName, importPath, fileName, dryRun);
+            return Run<HmiOperationResult>("hmi_unified_systemtextlists_import", () =>
+                ImportListFile(deviceName, importPath, fileName, dryRun, "system text lists",
+                    (software, directory, name) => software.HmiSystemTextLists.Import(directory, name),
+                    software => software.HmiSystemTextLists.Count));
         }
 
         [McpServerTool(Destructive = true, OpenWorld = true), Description("Export HMI tags of a WinCC Unified HMI to files in exportPath (TIA Portal's HMI tag exchange format): all tags, or a single tag by name. Returns the written files. Prerequisites: Project must be open, device must have WinCC Unified HMI software, exportPath must exist. Use hmi_unified_tags_import to reverse this operation.")]
@@ -938,6 +963,94 @@ namespace TiaPortalMcpServer
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Shared body of the text list, graphic list and system text list export tools: one file holding every list of that kind.
+        /// </summary>
+        private ToolResponse<HmiOperationResult> ExportListFile(
+            string deviceName,
+            string exportPath,
+            string fileName,
+            string listKind,
+            Func<HmiSoftware, DirectoryInfo, string, IEnumerable<FileInfo>?> export,
+            Func<HmiSoftware, int> count)
+        {
+            if (!TryValidateFileName(fileName, out var fileError))
+            {
+                return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, fileError);
+            }
+
+            if (string.IsNullOrWhiteSpace(exportPath) || !Directory.Exists(exportPath))
+            {
+                return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"Export directory '{exportPath}' does not exist");
+            }
+
+            var software = ResolveSoftware(deviceName, out var error);
+            if (software == null)
+            {
+                return ToolResponse<HmiOperationResult>.CreateError(error.Code, error.Message);
+            }
+
+            var files = export(software, new DirectoryInfo(exportPath), fileName.Trim());
+            var result = new HmiOperationResult
+            {
+                DeviceName = deviceName,
+                Target = listKind,
+                Files = files?.Select(f => f.FullName).ToList() ?? new List<string>()
+            };
+            result.Changes.Add($"Exported {count(software)} {listKind}");
+            return ToolResponse<HmiOperationResult>.CreateSuccess(result);
+        }
+
+        /// <summary>
+        /// Shared body of the text list, graphic list and system text list import tools.
+        /// </summary>
+        private ToolResponse<HmiOperationResult> ImportListFile(
+            string deviceName,
+            string importPath,
+            string fileName,
+            bool dryRun,
+            string listKind,
+            Func<HmiSoftware, DirectoryInfo, string, bool> import,
+            Func<HmiSoftware, int> count)
+        {
+            if (!TryValidateFileName(fileName, out var fileError))
+            {
+                return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, fileError);
+            }
+
+            if (string.IsNullOrWhiteSpace(importPath))
+            {
+                return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, "importPath is required");
+            }
+
+            var file = new FileInfo(Path.Combine(importPath, fileName.Trim()));
+            if (!file.Exists)
+            {
+                return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"File '{file.FullName}' not found");
+            }
+
+            var software = ResolveSoftware(deviceName, out var error);
+            if (software == null)
+            {
+                return ToolResponse<HmiOperationResult>.CreateError(error.Code, error.Message);
+            }
+
+            var result = new HmiOperationResult { DeviceName = deviceName, Target = listKind, DryRun = dryRun, Files = new List<string> { file.FullName } };
+            result.Changes.Add($"Import {listKind} from '{file.FullName}'");
+            if (dryRun)
+            {
+                return ToolResponse<HmiOperationResult>.CreateSuccess(result);
+            }
+
+            if (!import(software, file.Directory!, file.Name))
+            {
+                return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.TiaError, $"TIA Portal reported that importing '{file.FullName}' failed");
+            }
+
+            result.Changes.Add($"{count(software)} {listKind} after the import");
+            return ToolResponse<HmiOperationResult>.CreateSuccess(result);
         }
 
         private static bool TryValidateFileName(string fileName, out string errorMessage)

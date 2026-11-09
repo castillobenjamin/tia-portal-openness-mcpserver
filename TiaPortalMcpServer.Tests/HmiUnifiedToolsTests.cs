@@ -123,5 +123,102 @@ namespace TiaPortalMcpServer.Tests
             Assert.False(response.Success);
             Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
         }
+
+        [Fact]
+        public void GraphicListsList_NoProject_ReturnsError()
+        {
+            var response = ParseToolResult<object>(_tools.hmi_unified_graphiclists_list("TabletHMI"));
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+        }
+
+        [Fact]
+        public void GraphicListsExport_PathInFileName_ReturnsInvalidParameter()
+        {
+            var response = ParseToolResult<object>(_tools.hmi_unified_graphiclists_export("TabletHMI", "C:\\temp", "..\\GraphicLists.xlsx"));
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+        }
+
+        [Fact]
+        public void GraphicListsExport_MissingDirectory_ReturnsInvalidParameter()
+        {
+            var response = ParseToolResult<object>(_tools.hmi_unified_graphiclists_export("TabletHMI", "C:\\does-not-exist\\hmi-lists", "GraphicLists.xlsx"));
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+        }
+
+        [Fact]
+        public void GraphicListsExport_NoProject_ReturnsError()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var response = ParseToolResult<object>(_tools.hmi_unified_graphiclists_export("TabletHMI", files.Root, "GraphicLists.xlsx"));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+            }
+        }
+
+        [Fact]
+        public void GraphicListsImport_MissingFile_ReturnsInvalidParameter()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var response = ParseToolResult<object>(_tools.hmi_unified_graphiclists_import("TabletHMI", files.Root, "GraphicLists.xlsx", dryRun: true));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+            }
+        }
+
+        [Fact]
+        public void GraphicListsImport_NoProject_ReturnsError()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                files.Write("GraphicLists.xlsx", "x");
+                var response = ParseToolResult<object>(_tools.hmi_unified_graphiclists_import("TabletHMI", files.Root, "GraphicLists.xlsx", dryRun: true));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+            }
+        }
+
+        [Fact]
+        public void SystemTextListsExport_PathInFileName_ReturnsInvalidParameter()
+        {
+            var response = ParseToolResult<object>(_tools.hmi_unified_systemtextlists_export("TabletHMI", "C:\\temp", "..\\SystemTextLists.xlsx"));
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+        }
+
+        [Fact]
+        public void SystemTextListsExport_MissingDirectory_ReturnsInvalidParameter()
+        {
+            var response = ParseToolResult<object>(_tools.hmi_unified_systemtextlists_export("TabletHMI", "C:\\does-not-exist\\hmi-lists", "SystemTextLists.xlsx"));
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+        }
+
+        [Fact]
+        public void SystemTextListsImport_MissingFile_ReturnsInvalidParameter()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var response = ParseToolResult<object>(_tools.hmi_unified_systemtextlists_import("TabletHMI", files.Root, "SystemTextLists.xlsx", dryRun: true));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+            }
+        }
+
+        [Fact]
+        public void SystemTextListsImport_NoProject_ReturnsError()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                files.Write("SystemTextLists.xlsx", "x");
+                var response = ParseToolResult<object>(_tools.hmi_unified_systemtextlists_import("TabletHMI", files.Root, "SystemTextLists.xlsx", dryRun: true));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+            }
+        }
     }
 }

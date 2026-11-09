@@ -209,7 +209,7 @@ The compilation tools return the overall state, error and warning counts, and ea
 ### WinCC Unified HMI
 Tools for WinCC Unified HMI software (Unified Comfort Panels and PC runtimes). Write tools support `dryRun` and change the open project in memory; call `projects_save` to persist the changes. Attributes are passed as a JSON object such as `{"Left": 20, "Top": 40, "Text": "Start"}`; numbers, booleans, enum member names and strings are converted to each attribute's type, colors are given as `#RRGGBB`, `#AARRGGBB`, `R,G,B`, `A,R,G,B` or a name such as `Red` (and are listed as `#RRGGBB` / `#AARRGGBB`), and for multilingual texts a plain value sets every language while `de-DE:Start` sets one.
 
-- `hmi_unified_software_list` - List the WinCC Unified HMI devices with counts of screens, tags, tag tables, connections and text lists
+- `hmi_unified_software_list` - List the WinCC Unified HMI devices with counts of screens, tags, tag tables, connections, text lists, graphic lists and system text lists
 - `hmi_unified_screens_list` - List screens, including screens in screen groups
 - `hmi_unified_screen_create` - Create a screen, optionally in a screen group
 - `hmi_unified_screen_delete` - Delete a screen
@@ -228,6 +228,11 @@ Tools for WinCC Unified HMI software (Unified Comfort Panels and PC runtimes). W
 - `hmi_unified_textlists_list` - List text lists
 - `hmi_unified_textlists_export` - Export all text lists with their entries to a file
 - `hmi_unified_textlists_import` - Import text lists from such a file
+- `hmi_unified_graphiclists_list` - List graphic lists
+- `hmi_unified_graphiclists_export` - Export all graphic lists with their entries to a file
+- `hmi_unified_graphiclists_import` - Import graphic lists from such a file
+- `hmi_unified_systemtextlists_export` - Export all system text lists to a file
+- `hmi_unified_systemtextlists_import` - Import system text lists from such a file
 
 ### Sampling (LLM-assisted)
 - `sampling_generate_code` - Generate code with LLM assistance
