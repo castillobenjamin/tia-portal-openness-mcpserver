@@ -233,6 +233,9 @@ Tools for WinCC Unified HMI software (Unified Comfort Panels and PC runtimes). W
 - `hmi_unified_graphiclists_import` - Import graphic lists from such a file
 - `hmi_unified_systemtextlists_export` - Export all system text lists to a file
 - `hmi_unified_systemtextlists_import` - Import system text lists from such a file
+- `hmi_unified_scripts_list` - List global script modules
+- `hmi_unified_scripts_export` - Export all script modules, or one module, to files
+- `hmi_unified_scripts_import` - Import script modules, or one file, from such files
 
 ### Sampling (LLM-assisted)
 - `sampling_generate_code` - Generate code with LLM assistance

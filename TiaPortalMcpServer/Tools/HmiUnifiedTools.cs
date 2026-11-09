@@ -11,6 +11,7 @@ using Siemens.Engineering;
 using Siemens.Engineering.HmiUnified;
 using Siemens.Engineering.HmiUnified.HmiConnections;
 using Siemens.Engineering.HmiUnified.HmiTags;
+using Siemens.Engineering.HmiUnified.Scripts;
 using Siemens.Engineering.HmiUnified.TextGraphicList;
 using Siemens.Engineering.HmiUnified.UI.Base;
 using TiaPortalMcpServer.Models;
@@ -19,7 +20,7 @@ using TiaPortalMcpServer.Services;
 namespace TiaPortalMcpServer
 {
     /// <summary>
-    /// WinCC Unified HMI tools: screens, screen items, HMI tags, connections, text lists, graphic lists and system text lists.
+    /// WinCC Unified HMI tools: screens, screen items, HMI tags, connections, text lists, graphic lists, system text lists and script modules.
     /// </summary>
     /// <remarks>
     /// Write tools change the open project in memory; call projects_save to persist the changes.
@@ -848,6 +849,175 @@ namespace TiaPortalMcpServer
 
         #endregion
 
+        #region Script modules
+
+        [McpServerTool(ReadOnly = true, Idempotent = true), Description("List the global script modules of a WinCC Unified HMI by name. Their code is read and written with hmi_unified_scripts_export and hmi_unified_scripts_import. Prerequisites: Project must be open, device must have WinCC Unified HMI software.")]
+        public CallToolResult hmi_unified_scripts_list(
+            [Description(DeviceDescription)] string deviceName)
+        {
+            _logger.LogInformation("hmi_unified_scripts_list called with deviceName='{DeviceName}'", deviceName);
+            return Run<object>("hmi_unified_scripts_list", () =>
+            {
+                var software = ResolveSoftware(deviceName, out var error);
+                if (software == null)
+                {
+                    return ToolResponse<object>.CreateError(error.Code, error.Message);
+                }
+
+                var names = new List<string>();
+                foreach (HmiScriptModule module in software.Scripts)
+                {
+                    names.Add(module.Name);
+                }
+
+                return ToolResponse<object>.CreateSuccess(new { deviceName, count = names.Count, scriptModules = names });
+            });
+        }
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export the global script modules of a WinCC Unified HMI to files in exportPath: all modules, or a single module by name. Returns the written files. Prerequisites: Project must be open, device must have WinCC Unified HMI software, exportPath must exist. Use hmi_unified_scripts_import to reverse this operation.")]
+        public CallToolResult hmi_unified_scripts_export(
+            [Description(DeviceDescription)] string deviceName,
+            [Description("Directory to write the export files to")] string exportPath,
+            [Description("Name of a single script module to export, as listed by hmi_unified_scripts_list. Leave empty to export all modules")] string moduleName = "",
+            [Description("File name for a single exported module. Leave empty for TIA Portal's default name; only valid together with moduleName")] string fileName = "")
+        {
+            _logger.LogInformation("hmi_unified_scripts_export called with deviceName='{DeviceName}', exportPath='{ExportPath}', moduleName='{ModuleName}', fileName='{FileName}'", deviceName, exportPath, moduleName, fileName);
+            return Run<HmiOperationResult>("hmi_unified_scripts_export", () =>
+            {
+                var name = (moduleName ?? string.Empty).Trim();
+                var file = (fileName ?? string.Empty).Trim();
+                if (file.Length > 0)
+                {
+                    if (name.Length == 0)
+                    {
+                        return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, "fileName can only be given together with moduleName");
+                    }
+
+                    if (!TryValidateFileName(file, out var fileError))
+                    {
+                        return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, fileError);
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(exportPath) || !Directory.Exists(exportPath))
+                {
+                    return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"Export directory '{exportPath}' does not exist");
+                }
+
+                var software = ResolveSoftware(deviceName, out var error);
+                if (software == null)
+                {
+                    return ToolResponse<HmiOperationResult>.CreateError(error.Code, error.Message);
+                }
+
+                var directory = new DirectoryInfo(exportPath);
+                IEnumerable<FileInfo>? files;
+                string summary;
+                if (name.Length == 0)
+                {
+                    files = software.Scripts.Export(directory);
+                    summary = $"Exported {software.Scripts.Count} script modules";
+                }
+                else
+                {
+                    var module = FindScriptModule(software, name);
+                    if (module == null)
+                    {
+                        return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"Script module '{name}' not found on '{deviceName}'");
+                    }
+
+                    files = file.Length == 0 ? module.Export(directory) : module.Export(directory, file);
+                    summary = $"Exported script module '{name}'";
+                }
+
+                var result = new HmiOperationResult
+                {
+                    DeviceName = deviceName,
+                    Target = name.Length == 0 ? "script modules" : $"script module '{name}'",
+                    Files = files?.Select(f => f.FullName).ToList() ?? new List<string>()
+                };
+                result.Changes.Add(summary);
+                return ToolResponse<HmiOperationResult>.CreateSuccess(result);
+            });
+        }
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Import global script modules into a WinCC Unified HMI from files written by hmi_unified_scripts_export (or edited from them) in importPath: all of them, or a single file by name. Existing modules of the same name are updated. Prerequisites: Project must be open, device must have WinCC Unified HMI software, importPath must exist. Use dryRun=true to see the files without importing." + SaveNote)]
+        public CallToolResult hmi_unified_scripts_import(
+            [Description(DeviceDescription)] string deviceName,
+            [Description("Directory containing the files written by hmi_unified_scripts_export")] string importPath,
+            [Description("Name of a single file in importPath to import, as returned by hmi_unified_scripts_export. Leave empty to import all files in the directory")] string fileName = "",
+            [Description("If true, only validate without importing")] bool dryRun = false)
+        {
+            _logger.LogInformation("hmi_unified_scripts_import called with deviceName='{DeviceName}', importPath='{ImportPath}', fileName='{FileName}', dryRun={DryRun}", deviceName, importPath, fileName, dryRun);
+            return Run<HmiOperationResult>("hmi_unified_scripts_import", () =>
+            {
+                if (string.IsNullOrWhiteSpace(importPath) || !Directory.Exists(importPath))
+                {
+                    return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"Import directory '{importPath}' does not exist");
+                }
+
+                var directory = new DirectoryInfo(importPath);
+                var file = (fileName ?? string.Empty).Trim();
+                List<string> files;
+                if (file.Length == 0)
+                {
+                    files = directory.GetFiles().Select(f => f.FullName).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
+                    if (files.Count == 0)
+                    {
+                        return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"Import directory '{importPath}' contains no files");
+                    }
+                }
+                else
+                {
+                    if (!TryValidateFileName(file, out var fileError))
+                    {
+                        return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, fileError);
+                    }
+
+                    var single = new FileInfo(Path.Combine(directory.FullName, file));
+                    if (!single.Exists)
+                    {
+                        return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.InvalidParameter, $"File '{single.FullName}' not found");
+                    }
+
+                    files = new List<string> { single.FullName };
+                }
+
+                var software = ResolveSoftware(deviceName, out var error);
+                if (software == null)
+                {
+                    return ToolResponse<HmiOperationResult>.CreateError(error.Code, error.Message);
+                }
+
+                var result = new HmiOperationResult
+                {
+                    DeviceName = deviceName,
+                    Target = "script modules",
+                    DryRun = dryRun,
+                    Files = files
+                };
+                result.Changes.Add(file.Length == 0
+                    ? $"Import script modules from '{directory.FullName}'"
+                    : $"Import script modules from '{files[0]}'");
+                if (dryRun)
+                {
+                    return ToolResponse<HmiOperationResult>.CreateSuccess(result);
+                }
+
+                var before = software.Scripts.Count;
+                var imported = file.Length == 0 ? software.Scripts.Import(directory) : software.Scripts.Import(directory, file);
+                if (!imported)
+                {
+                    return ToolResponse<HmiOperationResult>.CreateError(ErrorCodes.TiaError, $"TIA Portal reported that importing script modules from '{directory.FullName}' failed");
+                }
+
+                result.Changes.Add($"{software.Scripts.Count} script modules after the import ({before} before)");
+                return ToolResponse<HmiOperationResult>.CreateSuccess(result);
+            });
+        }
+
+        #endregion
+
         #region Helpers
 
         private CallToolResult Run<T>(string toolName, Func<ToolResponse<T>> action)
@@ -1051,6 +1221,19 @@ namespace TiaPortalMcpServer
 
             result.Changes.Add($"{count(software)} {listKind} after the import");
             return ToolResponse<HmiOperationResult>.CreateSuccess(result);
+        }
+
+        private static HmiScriptModule? FindScriptModule(HmiSoftware software, string moduleName)
+        {
+            foreach (HmiScriptModule module in software.Scripts)
+            {
+                if (string.Equals(module.Name, moduleName, StringComparison.Ordinal))
+                {
+                    return module;
+                }
+            }
+
+            return null;
         }
 
         private static bool TryValidateFileName(string fileName, out string errorMessage)

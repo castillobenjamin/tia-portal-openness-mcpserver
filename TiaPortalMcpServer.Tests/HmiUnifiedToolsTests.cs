@@ -210,6 +210,90 @@ namespace TiaPortalMcpServer.Tests
         }
 
         [Fact]
+        public void ScriptsList_NoProject_ReturnsError()
+        {
+            var response = ParseToolResult<object>(_tools.hmi_unified_scripts_list("TabletHMI"));
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+        }
+
+        [Fact]
+        public void ScriptsExport_MissingDirectory_ReturnsInvalidParameter()
+        {
+            var response = ParseToolResult<object>(_tools.hmi_unified_scripts_export("TabletHMI", "C:\\does-not-exist\\hmi-scripts"));
+            Assert.False(response.Success);
+            Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+        }
+
+        [Fact]
+        public void ScriptsExport_FileNameWithoutModule_ReturnsInvalidParameter()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var response = ParseToolResult<object>(_tools.hmi_unified_scripts_export("TabletHMI", files.Root, fileName: "Module.js"));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+            }
+        }
+
+        [Fact]
+        public void ScriptsExport_PathInFileName_ReturnsInvalidParameter()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var response = ParseToolResult<object>(_tools.hmi_unified_scripts_export("TabletHMI", files.Root, "Module_1", "..\\Module.js"));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+            }
+        }
+
+        [Fact]
+        public void ScriptsExport_NoProject_ReturnsError()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var response = ParseToolResult<object>(_tools.hmi_unified_scripts_export("TabletHMI", files.Root));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+            }
+        }
+
+        [Fact]
+        public void ScriptsImport_EmptyDirectory_ReturnsInvalidParameter()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var response = ParseToolResult<object>(_tools.hmi_unified_scripts_import("TabletHMI", files.Root, dryRun: true));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+            }
+        }
+
+        [Fact]
+        public void ScriptsImport_MissingFile_ReturnsInvalidParameter()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                files.Write("Other.js", "x");
+                var response = ParseToolResult<object>(_tools.hmi_unified_scripts_import("TabletHMI", files.Root, "Module_1.js", dryRun: true));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+            }
+        }
+
+        [Fact]
+        public void ScriptsImport_NoProject_ReturnsError()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                files.Write("Module_1.js", "x");
+                var response = ParseToolResult<object>(_tools.hmi_unified_scripts_import("TabletHMI", files.Root, dryRun: true));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+            }
+        }
+
+        [Fact]
         public void SystemTextListsImport_NoProject_ReturnsError()
         {
             using (var files = new SimaticMlTestFiles())
