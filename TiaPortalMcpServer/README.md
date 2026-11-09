@@ -248,6 +248,11 @@ WinCC Unified screens have no Openness export, so `hmi_unified_screens_snapshot(
 - Properties that cannot be read are listed per object under `@unreadable` and in the tool result.
 - Sorted keys, UTF-8 without BOM, LF line endings and a final newline, so an unchanged screen gives identical files; files whose content is unchanged are not rewritten. Files of deleted or renamed screens and scripts are not removed; the tool returns every file of the run.
 
+The same format covers the rest of the HMI configuration, with one file per collection, `{ "items": { "<name>": { ... } } }`, sorted by name:
+
+- `hmi_unified_alarms_snapshot(deviceName, exportPath)` - `<exportPath>\Alarms\DiscreteAlarms.json`, `AnalogAlarms.json` and `AlarmClasses.json`, including trigger tags and bits, acknowledgment tags, alarm classes, priorities and multilingual alarm texts
+- `hmi_unified_settings_snapshot(deviceName, exportPath)` - `<exportPath>\Settings\Connections.json` (with driver properties), `DataLogs.json`, `AlarmLogs.json`, `AuditTrails.json` and `RuntimeSettings.json`; collections a device does not support are reported in the result instead
+
 ### Sampling (LLM-assisted)
 - `sampling_generate_code` - Generate code with LLM assistance
 - `sampling_summarize_project` - Summarize the current project

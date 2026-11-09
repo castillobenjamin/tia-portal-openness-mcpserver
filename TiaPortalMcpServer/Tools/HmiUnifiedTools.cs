@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using Newtonsoft.Json.Linq;
 using Siemens.Engineering;
 using Siemens.Engineering.HmiUnified;
 using Siemens.Engineering.HmiUnified.HmiConnections;
@@ -20,7 +21,7 @@ using TiaPortalMcpServer.Services;
 namespace TiaPortalMcpServer
 {
     /// <summary>
-    /// WinCC Unified HMI tools: screens (including review snapshots), screen items, HMI tags, connections, text lists, graphic lists, system text lists and script modules.
+    /// WinCC Unified HMI tools: screens (including review snapshots), screen items, HMI tags, connections, text lists, graphic lists, system text lists, script modules, and review snapshots of alarms, logs, connections and runtime settings.
     /// </summary>
     /// <remarks>
     /// Write tools change the open project in memory; call projects_save to persist the changes.
@@ -226,28 +227,13 @@ namespace TiaPortalMcpServer
                         continue;
                     }
 
-                    var directory = ExchangePaths.ToDirectory(result.SnapshotDirectory, entry.GroupPath);
-                    var fileName = ExchangePaths.ToFileName(entry.Screen.Name);
-                    var serializer = new HmiSnapshotSerializer(fileName + ".scripts", HmiUnifiedService.ConvertSnapshotValue);
-                    var json = HmiSnapshotSerializer.ToJson(serializer.Serialize(entry.Screen, entry.Screen.Name));
-
-                    WriteSnapshotFile(Path.Combine(directory, fileName + ".json"), json, result);
-                    foreach (var sidecar in serializer.Sidecars)
-                    {
-                        WriteSnapshotFile(Path.Combine(directory, sidecar.RelativePath.Replace('/', Path.DirectorySeparatorChar)), sidecar.Content, result);
-                    }
-
-                    unreadable.AddRange(serializer.Unreadable);
+                    var serializer = CreateSnapshotSerializer(entry.Screen.Name);
+                    var snapshot = serializer.Serialize(entry.Screen, entry.Screen.Name);
+                    WriteSnapshot(ExchangePaths.ToDirectory(result.SnapshotDirectory, entry.GroupPath), entry.Screen.Name, snapshot, serializer, result, unreadable);
                     result.ScreenCount++;
                 }
 
-                result.Files = result.Files.OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
-                result.UnreadableCount = unreadable.Count;
-                if (unreadable.Count > 0)
-                {
-                    result.Unreadable = unreadable.Take(MaxReportedUnreadable).ToList();
-                }
-
+                CompleteSnapshot(result, unreadable);
                 return ToolResponse<HmiScreenSnapshotResult>.CreateSuccess(result);
             });
         }
@@ -1084,6 +1070,106 @@ namespace TiaPortalMcpServer
 
         #endregion
 
+        #region Alarm and settings snapshots
+
+        [McpServerTool(Destructive = false, Idempotent = true, OpenWorld = true), Description("Write a review snapshot of the alarm configuration of a WinCC Unified HMI for diffing in git: <exportPath>\\Alarms\\DiscreteAlarms.json, AnalogAlarms.json and AlarmClasses.json, each { \"items\": { \"<name>\": { ... } } } sorted by name, with every readable property: trigger tag and bit, acknowledgment tags and bits, alarm class, priority, alarm parameter tags and multilingual alarm texts as { \"<culture>\": \"<text>\" }. Same format as hmi_unified_screens_snapshot: sorted keys, UTF-8 without BOM, LF line endings, unchanged files not rewritten, unreadable properties under \"@unreadable\". Snapshots cannot be imported; the project is not changed. Prerequisites: Project must be open, device must have WinCC Unified HMI software, exportPath must exist.")]
+        public CallToolResult hmi_unified_alarms_snapshot(
+            [Description(DeviceDescription)] string deviceName,
+            [Description("Directory to write the snapshot to; the files go to its Alarms subdirectory")] string exportPath)
+        {
+            _logger.LogInformation("hmi_unified_alarms_snapshot called with deviceName='{DeviceName}', exportPath='{ExportPath}'", deviceName, exportPath);
+            return Run<HmiCollectionSnapshotResult>("hmi_unified_alarms_snapshot", () =>
+                SnapshotCollections(deviceName, exportPath, "Alarms", software => new List<(string Name, Func<object?> Read, bool Single)>
+                {
+                    ("DiscreteAlarms", () => software.DiscreteAlarms, false),
+                    ("AnalogAlarms", () => software.AnalogAlarms, false),
+                    ("AlarmClasses", () => software.AlarmClasses, false)
+                }));
+        }
+
+        [McpServerTool(Destructive = false, Idempotent = true, OpenWorld = true), Description("Write a review snapshot of the connections, logs and runtime settings of a WinCC Unified HMI for diffing in git: <exportPath>\\Settings\\Connections.json (with driver properties), DataLogs.json, AlarmLogs.json and AuditTrails.json, each { \"items\": { \"<name>\": { ... } } } sorted by name, and RuntimeSettings.json with the runtime settings object. Same format as hmi_unified_screens_snapshot: sorted keys, UTF-8 without BOM, LF line endings, unchanged files not rewritten, unreadable properties under \"@unreadable\"; collections the device does not support are reported under unreadable. Snapshots cannot be imported; the project is not changed. Prerequisites: Project must be open, device must have WinCC Unified HMI software, exportPath must exist.")]
+        public CallToolResult hmi_unified_settings_snapshot(
+            [Description(DeviceDescription)] string deviceName,
+            [Description("Directory to write the snapshot to; the files go to its Settings subdirectory")] string exportPath)
+        {
+            _logger.LogInformation("hmi_unified_settings_snapshot called with deviceName='{DeviceName}', exportPath='{ExportPath}'", deviceName, exportPath);
+            return Run<HmiCollectionSnapshotResult>("hmi_unified_settings_snapshot", () =>
+                SnapshotCollections(deviceName, exportPath, "Settings", software => new List<(string Name, Func<object?> Read, bool Single)>
+                {
+                    ("Connections", () => software.Connections, false),
+                    ("DataLogs", () => software.DataLogs, false),
+                    ("AlarmLogs", () => software.AlarmLogs, false),
+                    ("AuditTrails", () => software.AuditTrails, false),
+                    ("RuntimeSettings", () => software.RuntimeSettings, true)
+                }));
+        }
+
+        /// <summary>
+        /// Shared body of the alarm and settings snapshots: one file per source in exportPath/folder, either a collection of
+        /// named objects or (Single) one object. A source the device does not support is reported as unreadable and skipped.
+        /// </summary>
+        private ToolResponse<HmiCollectionSnapshotResult> SnapshotCollections(
+            string deviceName,
+            string exportPath,
+            string folder,
+            Func<HmiSoftware, List<(string Name, Func<object?> Read, bool Single)>> sources)
+        {
+            if (string.IsNullOrWhiteSpace(exportPath) || !Directory.Exists(exportPath))
+            {
+                return ToolResponse<HmiCollectionSnapshotResult>.CreateError(ErrorCodes.InvalidParameter, $"Export directory '{exportPath}' does not exist");
+            }
+
+            var software = ResolveSoftware(deviceName, out var error);
+            if (software == null)
+            {
+                return ToolResponse<HmiCollectionSnapshotResult>.CreateError(error.Code, error.Message);
+            }
+
+            var result = new HmiCollectionSnapshotResult
+            {
+                DeviceName = deviceName,
+                SnapshotDirectory = Path.Combine(Path.GetFullPath(exportPath), folder)
+            };
+            var unreadable = new List<string>();
+
+            foreach (var source in sources(software))
+            {
+                try
+                {
+                    var value = source.Read();
+                    if (value == null)
+                    {
+                        unreadable.Add($"{source.Name}: not available on '{deviceName}'");
+                        continue;
+                    }
+
+                    var serializer = CreateSnapshotSerializer(source.Name);
+                    JObject snapshot;
+                    if (source.Single)
+                    {
+                        snapshot = serializer.Serialize(value, source.Name, HmiSnapshotSerializer.ObjectFormat);
+                        result.Counts[source.Name] = 1;
+                    }
+                    else
+                    {
+                        snapshot = serializer.SerializeNamed((System.Collections.IEnumerable)value, source.Name);
+                        result.Counts[source.Name] = ((JObject)snapshot["items"]!).Count;
+                    }
+
+                    WriteSnapshot(result.SnapshotDirectory, source.Name, snapshot, serializer, result, unreadable);
+                }
+                catch (EngineeringException ex)
+                {
+                    unreadable.Add($"{source.Name}: {ex.Message}");
+                }
+            }
+
+            CompleteSnapshot(result, unreadable);
+            return ToolResponse<HmiCollectionSnapshotResult>.CreateSuccess(result);
+        }
+
+        #endregion
+
         #region Helpers
 
         private CallToolResult Run<T>(string toolName, Func<ToolResponse<T>> action)
@@ -1302,7 +1388,39 @@ namespace TiaPortalMcpServer
             return null;
         }
 
-        private static void WriteSnapshotFile(string path, string content, HmiScreenSnapshotResult result)
+        /// <summary>
+        /// A serializer whose script sidecars go to "&lt;name&gt;.scripts" next to "&lt;name&gt;.json".
+        /// </summary>
+        private static HmiSnapshotSerializer CreateSnapshotSerializer(string name)
+        {
+            return new HmiSnapshotSerializer(ExchangePaths.ToFileName(name) + ".scripts", HmiUnifiedService.ConvertSnapshotValue);
+        }
+
+        /// <summary>
+        /// Writes "&lt;name&gt;.json" and its script sidecars to <paramref name="directory"/>, recording files and unreadable properties.
+        /// </summary>
+        private static void WriteSnapshot(string directory, string name, JObject snapshot, HmiSnapshotSerializer serializer, HmiSnapshotResult result, List<string> unreadable)
+        {
+            WriteSnapshotFile(Path.Combine(directory, ExchangePaths.ToFileName(name) + ".json"), HmiSnapshotSerializer.ToJson(snapshot), result);
+            foreach (var sidecar in serializer.Sidecars)
+            {
+                WriteSnapshotFile(Path.Combine(directory, sidecar.RelativePath.Replace('/', Path.DirectorySeparatorChar)), sidecar.Content, result);
+            }
+
+            unreadable.AddRange(serializer.Unreadable);
+        }
+
+        private static void CompleteSnapshot(HmiSnapshotResult result, List<string> unreadable)
+        {
+            result.Files = result.Files.OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
+            result.UnreadableCount = unreadable.Count;
+            if (unreadable.Count > 0)
+            {
+                result.Unreadable = unreadable.Take(MaxReportedUnreadable).ToList();
+            }
+        }
+
+        private static void WriteSnapshotFile(string path, string content, HmiSnapshotResult result)
         {
             if (HmiSnapshotSerializer.WriteIfChanged(path, content))
             {

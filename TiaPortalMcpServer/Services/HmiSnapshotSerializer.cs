@@ -39,8 +39,8 @@ namespace TiaPortalMcpServer.Services
     /// <list type="bullet">
     /// <item>Every object gets an "@type" key with its runtime type name; "Parent" properties are skipped.</item>
     /// <item>Colors are written as #AARRGGBB, enums by member name, dates in ISO 8601 form.</item>
-    /// <item>ScreenItems stay in their order (the z-order); Dynamizations, EventHandlers, PropertyEventHandlers and
-    /// Interface become objects keyed by property or event; other collections stay arrays; empty collections are left out.</item>
+    /// <item>ScreenItems stay in their order (the z-order); Dynamizations, EventHandlers, PropertyEventHandlers,
+    /// Interface and DriverProperties become objects keyed by property or event; other collections stay arrays; empty collections are left out.</item>
     /// <item>Non-empty ScriptCode and GlobalDefinitionAreaScriptCode values are moved to sidecar files and replaced by
     /// { "file": "&lt;relative path&gt;" }.</item>
     /// <item>Properties that throw when read are listed under "@unreadable".</item>
@@ -49,9 +49,20 @@ namespace TiaPortalMcpServer.Services
     public sealed class HmiSnapshotSerializer
     {
         /// <summary>
-        /// Value of the "@format" key at the root of every snapshot; changes when the layout changes.
+        /// Value of the "@format" key at the root of a screen snapshot; changes when the layout changes.
         /// </summary>
         public const string Format = "tia-portal-mcp/hmi-unified-screen-snapshot/1";
+
+        /// <summary>
+        /// Value of the "@format" key of a snapshot of named objects (alarms, alarm classes, logs, connections), written by
+        /// <see cref="SerializeNamed"/>.
+        /// </summary>
+        public const string CollectionFormat = "tia-portal-mcp/hmi-unified-collection-snapshot/1";
+
+        /// <summary>
+        /// Value of the "@format" key of a snapshot of a single settings object such as the runtime settings.
+        /// </summary>
+        public const string ObjectFormat = "tia-portal-mcp/hmi-unified-object-snapshot/1";
 
         private const int MaxDepth = 32;
         private const string ScreenItemsProperty = "ScreenItems";
@@ -73,7 +84,8 @@ namespace TiaPortalMcpServer.Services
                 [DynamizationsProperty] = (new[] { "PropertyName" }, false),
                 ["EventHandlers"] = (new[] { "EventType" }, false),
                 ["PropertyEventHandlers"] = (new[] { "PropertyName", "EventType" }, false),
-                ["Interface"] = (new[] { "PropertyName" }, true)
+                ["Interface"] = (new[] { "PropertyName" }, true),
+                ["DriverProperties"] = (new[] { "PropertyName" }, true)
             };
 
         private static readonly ConcurrentDictionary<Type, PropertyInfo[]> PropertyCache = new ConcurrentDictionary<Type, PropertyInfo[]>();
@@ -107,12 +119,37 @@ namespace TiaPortalMcpServer.Services
         /// <summary>
         /// The snapshot of <paramref name="root"/>; <paramref name="rootName"/> names scripts of the root itself.
         /// </summary>
-        public JObject Serialize(object root, string rootName)
+        /// <param name="format">The "@format" value: <see cref="Format"/> for screens, <see cref="ObjectFormat"/> for other objects.</param>
+        public JObject Serialize(object root, string rootName, string format = Format)
         {
             _rootName = rootName;
             var snapshot = SerializeObject(root, new[] { ExchangePaths.ToFileName(rootName) }, false, 0);
-            snapshot["@format"] = Format;
+            snapshot["@format"] = format;
             return snapshot;
+        }
+
+        /// <summary>
+        /// The snapshot of a collection of named objects such as alarms: { "@format", "items": { "&lt;Name&gt;": { ... } } },
+        /// so the entries end up sorted by name. Entries without a readable name are keyed "#&lt;index&gt;"; duplicate names get
+        /// a "~2" suffix. <paramref name="collectionName"/> starts the lines of <see cref="Unreadable"/>.
+        /// </summary>
+        public JObject SerializeNamed(IEnumerable entries, string collectionName)
+        {
+            _rootName = collectionName;
+            var items = new JObject();
+            var index = 0;
+            foreach (var entry in entries)
+            {
+                if (entry != null)
+                {
+                    var key = UniqueKey(items, ReadName(entry) ?? "#" + index.ToString(CultureInfo.InvariantCulture));
+                    items[key] = SerializeObject(entry, new[] { ExchangePaths.ToFileName(key) }, false, 0);
+                }
+
+                index++;
+            }
+
+            return new JObject { ["@format"] = CollectionFormat, ["items"] = items };
         }
 
         /// <summary>

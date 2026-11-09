@@ -249,6 +249,49 @@ namespace TiaPortalMcpServer.Tests
             Assert.Null(start["Broken"]);
         }
 
+        private sealed class FakeAlarm
+        {
+            public string Name { get; set; } = string.Empty;
+
+            public uint Id { get; set; }
+
+            public FakeText EventText { get; set; } = new FakeText { English = "Motor fault", German = "Motorst\u00F6rung" };
+        }
+
+        private sealed class FakeSettings
+        {
+            public object Parent => null;
+
+            public string StartScreen { get; set; } = "Main";
+        }
+
+        [Fact]
+        public void SerializeNamed_KeysEntriesByNameInSortedOrder()
+        {
+            var alarms = new List<FakeAlarm> { new FakeAlarm { Name = "Pump", Id = 2 }, new FakeAlarm { Name = "Motor", Id = 1 }, new FakeAlarm { Name = "Pump", Id = 3 } };
+            var serializer = new HmiSnapshotSerializer("DiscreteAlarms.scripts", ConvertText);
+
+            var json = HmiSnapshotSerializer.ToJson(serializer.SerializeNamed(alarms, "DiscreteAlarms"));
+            var root = JObject.Parse(json);
+            var items = (JObject)root["items"];
+
+            Assert.Equal(HmiSnapshotSerializer.CollectionFormat, (string)root["@format"]);
+            Assert.Equal(new[] { "Motor", "Pump", "Pump~2" }, items.Properties().Select(p => p.Name));
+            Assert.Equal(3u, (uint)items["Pump~2"]["Id"]);
+            Assert.Equal("Motorst\u00F6rung", (string)items["Motor"]["EventText"]["de-DE"]);
+            Assert.True(json.IndexOf("\"Motor\"", StringComparison.Ordinal) < json.IndexOf("\"Pump\"", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void Serialize_WritesTheGivenFormat()
+        {
+            var root = new HmiSnapshotSerializer("RuntimeSettings.scripts").Serialize(new FakeSettings(), "RuntimeSettings", HmiSnapshotSerializer.ObjectFormat);
+
+            Assert.Equal(HmiSnapshotSerializer.ObjectFormat, (string)root["@format"]);
+            Assert.Equal("Main", (string)root["StartScreen"]);
+            Assert.Null(root["Parent"]);
+        }
+
         [Fact]
         public void WriteIfChanged_WritesUtf8WithoutBomAndSkipsUnchangedFiles()
         {
@@ -256,12 +299,12 @@ namespace TiaPortalMcpServer.Tests
             {
                 var path = Path.Combine(files.Root, "Screens", "Main.json");
 
-                Assert.True(HmiSnapshotSerializer.WriteIfChanged(path, "{ \"Text\": \"Gr00FC00DFe\" }\n"));
-                Assert.False(HmiSnapshotSerializer.WriteIfChanged(path, "{ \"Text\": \"Gr00FC00DFe\" }\n"));
+                Assert.True(HmiSnapshotSerializer.WriteIfChanged(path, "{ \"Text\": \"Gr\u00FC\u00DFe\" }\n"));
+                Assert.False(HmiSnapshotSerializer.WriteIfChanged(path, "{ \"Text\": \"Gr\u00FC\u00DFe\" }\n"));
 
                 var bytes = File.ReadAllBytes(path);
                 Assert.NotEqual(0xEF, bytes[0]);
-                Assert.Equal("{ \"Text\": \"Gr00FC00DFe\" }\n", System.Text.Encoding.UTF8.GetString(bytes));
+                Assert.Equal("{ \"Text\": \"Gr\u00FC\u00DFe\" }\n", System.Text.Encoding.UTF8.GetString(bytes));
             }
         }
     }

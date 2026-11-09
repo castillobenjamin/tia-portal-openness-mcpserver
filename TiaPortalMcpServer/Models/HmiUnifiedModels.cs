@@ -174,19 +174,35 @@ namespace TiaPortalMcpServer.Models
     /// <summary>
     /// Result of a WinCC Unified write operation (create, delete, set attributes, import, export).
     /// </summary>
-    public class HmiScreenSnapshotResult
+    public class HmiScreenSnapshotResult : HmiSnapshotResult
+    {
+        [JsonProperty("screenCount")]
+        public int ScreenCount { get; set; }
+    }
+
+    public class HmiCollectionSnapshotResult : HmiSnapshotResult
+    {
+        /// <summary>
+        /// Number of entries written per collection, such as { "DiscreteAlarms": 120 }. Collections the device does not
+        /// support are missing and listed under unreadable.
+        /// </summary>
+        [JsonProperty("counts")]
+        public IDictionary<string, int> Counts { get; set; } = new SortedDictionary<string, int>(System.StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// Result of the hmi_unified_*_snapshot tools.
+    /// </summary>
+    public abstract class HmiSnapshotResult
     {
         [JsonProperty("deviceName")]
         public string DeviceName { get; set; } = string.Empty;
 
         /// <summary>
-        /// The "Screens" directory below the export path that holds the snapshots.
+        /// The directory below the export path that holds the snapshots ("Screens", "Alarms" or "Settings").
         /// </summary>
         [JsonProperty("snapshotDirectory")]
         public string SnapshotDirectory { get; set; } = string.Empty;
-
-        [JsonProperty("screenCount")]
-        public int ScreenCount { get; set; }
 
         /// <summary>
         /// Files rewritten because their content changed (or they are new).
