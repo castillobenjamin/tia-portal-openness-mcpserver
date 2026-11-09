@@ -23,6 +23,7 @@ The server provides tool groups for:
 - SIMATIC SD document exchange of blocks (`blocks_export_as_documents`, `blocks_export_all_as_documents`, `blocks_import_from_documents`, `blocks_import_all_from_documents`)
 - SimaticML XML exchange of blocks, PLC data types and PLC tag tables (`blocks_export_as_xml`, `blocks_export_all_as_xml`, `blocks_import_from_xml`, `blocks_import_all_from_xml`, `types_export_as_xml`, `types_export_all_as_xml`, `types_import_from_xml`, `types_import_all_from_xml`, `tags_tagtable_export`, `tags_tagtable_export_all`, `tags_tagtable_import`, `tags_tagtable_import_all`)
 - `preservePath` on the exchange tools mirrors the TIA project tree (`Program blocks/...`, `PLC data types/...`, `PLC tags/...`) on export and reads it back on import
+- hardware configuration export as AutomationML (`cax_export`, with an optional `normalize` for byte-identical repeat exports)
 - compilation with each error and warning reported with its object path (`compilation_project`, `compilation_software` incl. single Software Units, `compilation_block`, `compilation_hmi`)
 - file import and validation (`files_read_csv`, `files_read_excel`, `files_list_sheets`, `files_validate_format`, `files_get_info`)
 - HMI targets (`hmi_targets_list`, `hmi_targets_get`, `hmi_targets_validate`)

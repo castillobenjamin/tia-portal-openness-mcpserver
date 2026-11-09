@@ -189,6 +189,13 @@ exportPath/
 
 Bulk imports with `preservePath=true` read the same layout back. Pass the same path as `importPath`: the tree starts in `importPath/Program blocks` (blocks) or `importPath/PLC data types` (types) or `importPath/PLC tags` (tag tables) when that folder exists, and in `importPath` itself otherwise. Each subdirectory is imported into the group of the same path below `groupName`, and missing groups are created. Without `preservePath`, exports write all files directly into `exportPath` and imports read only the files directly in `importPath`.
 
+### Hardware Configuration (CAx)
+Export the hardware configuration as AutomationML for review and version control. There is no CAx import tool: a CAx import creates objects and does not update an existing project.
+
+- `cax_export` - Export the whole project, or one device (`deviceName`), as an `.aml` file in an existing `exportPath`
+
+TIA Portal's transfer messages go to a `.log` file of the same name next to the `.aml`. The export can succeed partially, so the response gives the overall state, error and warning counts and the error and warning messages (up to 100 each; `messagesTruncated` says when the log holds more). An existing `.aml` is replaced only with `overwrite=true`. With `normalize=true`, element IDs are replaced with GUIDs derived from each element's path (element name, `Name` and position among equally named siblings), references to them are rewritten to match, write timestamps (`LastWritingDateTime`) are set to `1970-01-01T00:00:00`, and the log leaves out timestamps, so exporting an unchanged project again gives identical files. Nothing else is changed or reordered. The AML does not hold every parameter shown in the TIA Portal properties.
+
 ### Utility Operations
 - `utilities_get_project_info` - Get project information
 - `utilities_list_libraries` - List available libraries
@@ -295,7 +302,7 @@ This will allow you to interactively test all available tools.
 - Dependency injection with Microsoft.Extensions.Hosting
 - **Logging:** Serilog configured to write to stderr (required for MCP protocol compatibility)
 - **Project structure is organized by feature and concern:**
-   - `Tools/` — MCP tool classes grouped by domain (ProjectManagement, Device, DeviceItem, Software, Tag, Blocks, XmlExchange, Compilation, File, HmiTarget, Utility, Sampling, UserInteraction, Test, Hardware)
+   - `Tools/` — MCP tool classes grouped by domain (ProjectManagement, Device, DeviceItem, Software, Tag, Blocks, XmlExchange, Cax, Compilation, File, HmiTarget, Utility, Sampling, UserInteraction, Test, Hardware)
    - `Services/` — TIA Portal adapters and session management (TiaPortalService, TiaPortalSessionManager, BlocksAdapter, HmiTargetAdapter, FileAdapter)
    - `Models/` — Data transfer objects and result models
    - `Extensions/` — DI and service collection helpers
