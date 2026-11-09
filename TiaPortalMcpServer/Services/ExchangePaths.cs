@@ -30,8 +30,9 @@ namespace TiaPortalMcpServer.Services
     /// Maps TIA object names and block/type group paths (such as "Motion/Axis") to file system paths and back.
     /// </summary>
     /// <remarks>
-    /// With preservePath, exports mirror the TIA project tree: blocks go below a "Program blocks" folder and PLC data types
-    /// below a "PLC data types" folder, each followed by the group path. Imports read the same layout back.
+    /// With preservePath, exports mirror the TIA project tree: blocks go below a "Program blocks" folder, PLC data types
+    /// below a "PLC data types" folder and PLC tag tables below a "PLC tags" folder, each followed by the group path.
+    /// Imports read the same layout back.
     /// </remarks>
     public static class ExchangePaths
     {
@@ -44,6 +45,11 @@ namespace TiaPortalMcpServer.Services
         /// Folder that stands for the root PLC data type group in an exported tree, as named in the TIA project tree.
         /// </summary>
         public const string TypesRootFolder = "PLC data types";
+
+        /// <summary>
+        /// Folder that stands for the root PLC tag table group in an exported tree, as named in the TIA project tree.
+        /// </summary>
+        public const string TagTablesRootFolder = "PLC tags";
 
         private static readonly char[] GroupSeparators = { '/', '\\' };
 

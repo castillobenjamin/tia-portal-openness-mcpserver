@@ -40,6 +40,11 @@ namespace TiaPortalMcpServer.Tests
             return Document("SW.Types.PlcStruct", name);
         }
 
+        public static string TagTable(string name)
+        {
+            return Document("SW.Tags.PlcTagTable", name);
+        }
+
         public string Write(string relativePath, string content)
         {
             var path = Path.Combine(Root, relativePath);

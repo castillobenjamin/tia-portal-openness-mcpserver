@@ -37,11 +37,19 @@ namespace TiaPortalMcpServer.Tests
         }
 
         [Fact]
-        public void TryInspect_TagTableExport_ReturnsOther()
+        public void TryInspect_TagTableExport_ReturnsTagTable()
         {
-            Assert.True(Inspect(SimaticMlTestFiles.Document("SW.Tags.PlcTagTable", "Default tag table"), out var info, out _));
-            Assert.Equal(SimaticMlInspector.KindOther, info.Kind);
+            Assert.True(Inspect(SimaticMlTestFiles.TagTable("Default tag table"), out var info, out _));
+            Assert.Equal(SimaticMlInspector.KindTagTable, info.Kind);
+            Assert.Equal("SW.Tags.PlcTagTable", info.ElementName);
             Assert.Equal("Default tag table", info.Name);
+        }
+
+        [Fact]
+        public void TryInspect_OtherTagElement_ReturnsOther()
+        {
+            Assert.True(Inspect(SimaticMlTestFiles.Document("SW.Tags.PlcTag", "Start"), out var info, out _));
+            Assert.Equal(SimaticMlInspector.KindOther, info.Kind);
         }
 
         [Fact]

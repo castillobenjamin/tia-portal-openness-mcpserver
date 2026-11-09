@@ -32,10 +32,12 @@ namespace TiaPortalMcpServer.Services
     {
         public const string KindBlock = "Block";
         public const string KindType = "Type";
+        public const string KindTagTable = "TagTable";
         public const string KindOther = "Other";
 
         private const string BlockElementPrefix = "SW.Blocks.";
         private const string TypeElementPrefix = "SW.Types.";
+        private const string TagTableElement = "SW.Tags.PlcTagTable";
 
         /// <summary>
         /// Reads the first exported object of a SimaticML file. Returns false with an error when the file is not SimaticML.
@@ -110,6 +112,10 @@ namespace TiaPortalMcpServer.Services
                     else if (elementName.StartsWith(TypeElementPrefix, StringComparison.Ordinal))
                     {
                         info.Kind = KindType;
+                    }
+                    else if (elementName == TagTableElement)
+                    {
+                        info.Kind = KindTagTable;
                     }
                     else if (elementName.StartsWith("SW.", StringComparison.Ordinal))
                     {

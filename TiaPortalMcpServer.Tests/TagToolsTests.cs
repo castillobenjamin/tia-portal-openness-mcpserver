@@ -30,7 +30,7 @@ namespace TiaPortalMcpServer.Tests
         // Test tags_tagtable_list
         // Test tags_tagtable_get
         // Test tags_tagtable_delete
-        // Test tags_tagtable_export
+        // tags_tagtable_export and the tag table import tools are tested in XmlExchangeToolsTests
         // Test tags_tagtable_open_editor
 
         #endregion

@@ -18,11 +18,11 @@ The server provides tool groups for:
 - PLC software and block operations (`software_add_block`, `blocks_list`, `software_get_block_hierarchy`, `software_units_list`)
 - PLC software discovery (`software_paths_list` for every PLC and Software Unit in the project, `software_tree_get` for the project tree of one of them)
 - Software Units: block, tag and software tools take an optional `unitName` to work inside a Software Unit instead of the device's main PLC software; `software_units_list` lists the available units
-- tag and tag-table management (`tags_create`, `tags_list`, `tags_tagtable_create`, `tags_tagtable_list`, `tags_tagtable_get`, `tags_tagtable_delete`, `tags_tagtable_export`, `tags_tagtable_open_editor`, `tags_group_create`, `tags_group_list`, `tags_group_find`, `tags_group_delete`, `tags_group_system_get`, `tags_constants_user_list`, `tags_constants_system_list`)
+- tag and tag-table management (`tags_create`, `tags_list`, `tags_tagtable_create`, `tags_tagtable_list`, `tags_tagtable_get`, `tags_tagtable_delete`, `tags_tagtable_open_editor`, `tags_group_create`, `tags_group_list`, `tags_group_find`, `tags_group_delete`, `tags_group_system_get`, `tags_constants_user_list`, `tags_constants_system_list`)
 - advanced block operations (external sources, ProDiag, UDTs, types, editor helpers — 19 tools in `BlocksTools`)
 - SIMATIC SD document exchange of blocks (`blocks_export_as_documents`, `blocks_export_all_as_documents`, `blocks_import_from_documents`, `blocks_import_all_from_documents`)
-- SimaticML XML exchange of blocks and PLC data types (`blocks_export_as_xml`, `blocks_export_all_as_xml`, `blocks_import_from_xml`, `blocks_import_all_from_xml`, `types_export_as_xml`, `types_export_all_as_xml`, `types_import_from_xml`, `types_import_all_from_xml`)
-- `preservePath` on the exchange tools mirrors the TIA project tree (`Program blocks/...`, `PLC data types/...`) on export and reads it back on import
+- SimaticML XML exchange of blocks, PLC data types and PLC tag tables (`blocks_export_as_xml`, `blocks_export_all_as_xml`, `blocks_import_from_xml`, `blocks_import_all_from_xml`, `types_export_as_xml`, `types_export_all_as_xml`, `types_import_from_xml`, `types_import_all_from_xml`, `tags_tagtable_export`, `tags_tagtable_export_all`, `tags_tagtable_import`, `tags_tagtable_import_all`)
+- `preservePath` on the exchange tools mirrors the TIA project tree (`Program blocks/...`, `PLC data types/...`, `PLC tags/...`) on export and reads it back on import
 - compilation with each error and warning reported with its object path (`compilation_project`, `compilation_software` incl. single Software Units, `compilation_block`, `compilation_hmi`)
 - file import and validation (`files_read_csv`, `files_read_excel`, `files_list_sheets`, `files_validate_format`, `files_get_info`)
 - HMI targets (`hmi_targets_list`, `hmi_targets_get`, `hmi_targets_validate`)

@@ -11,6 +11,7 @@ using Siemens.Engineering.HW;
 using Siemens.Engineering.HW.Features;
 using Siemens.Engineering.SW;
 using Siemens.Engineering.SW.Blocks;
+using Siemens.Engineering.SW.Tags;
 using Siemens.Engineering.SW.Types;
 using Siemens.Engineering.SW.Units;
 using TiaPortalMcpServer.Models;
@@ -644,6 +645,88 @@ namespace TiaPortalMcpServer.Services
             }
 
             return (null, string.Empty);
+        }
+
+        /// <summary>
+        /// Resolves a PLC tag table group path such as "IO/Inputs" relative to the root tag table group. Empty returns the root.
+        /// </summary>
+        public PlcTagTableGroup? FindTagTableGroup(PlcTagTableGroup rootGroup, string? groupPath)
+        {
+            PlcTagTableGroup? current = rootGroup;
+            foreach (var segment in SplitGroupPath(groupPath))
+            {
+                current = current.Groups.Find(segment);
+                if (current == null)
+                {
+                    return null;
+                }
+            }
+
+            return current;
+        }
+
+        /// <summary>
+        /// Resolves a PLC tag table group path relative to the root tag table group, creating missing user groups on the way.
+        /// </summary>
+        public PlcTagTableGroup GetOrCreateTagTableGroup(PlcTagTableGroup rootGroup, string? groupPath)
+        {
+            var current = rootGroup;
+            foreach (var segment in SplitGroupPath(groupPath))
+            {
+                current = (PlcTagTableGroup?)current.Groups.Find(segment) ?? current.Groups.Create(segment);
+            }
+
+            return current;
+        }
+
+        /// <summary>
+        /// Returns every PLC tag table in the group and its user subgroups that passes the name filter, with its group path
+        /// relative to <paramref name="tagTableGroup"/> (empty for tables directly in it, such as the default tag table).
+        /// </summary>
+        public List<(PlcTagTable Table, string GroupPath)> GetTagTablesWithGroupPaths(PlcTagTableGroup tagTableGroup, string regexName = "")
+        {
+            var tables = new List<(PlcTagTable Table, string GroupPath)>();
+            CollectTagTablesWithGroupPaths(tagTableGroup, string.Empty, regexName, tables);
+            return tables;
+        }
+
+        /// <summary>
+        /// Finds a PLC tag table by exact name in the group or its user subgroups, with its group path.
+        /// </summary>
+        public (PlcTagTable? Table, string GroupPath) FindTagTableWithGroupPath(PlcTagTableGroup tagTableGroup, string tableName, string groupPath = "")
+        {
+            var table = tagTableGroup.TagTables.Find(tableName);
+            if (table != null)
+            {
+                return (table, groupPath);
+            }
+
+            foreach (PlcTagTableUserGroup userGroup in tagTableGroup.Groups)
+            {
+                var found = FindTagTableWithGroupPath(userGroup, tableName, ExchangePaths.CombineGroupPath(groupPath, userGroup.Name));
+                if (found.Table != null)
+                {
+                    return found;
+                }
+            }
+
+            return (null, string.Empty);
+        }
+
+        private static void CollectTagTablesWithGroupPaths(PlcTagTableGroup tagTableGroup, string groupPath, string regexName, List<(PlcTagTable Table, string GroupPath)> tables)
+        {
+            foreach (PlcTagTable table in tagTableGroup.TagTables)
+            {
+                if (NameFilter.IsMatch(table.Name, regexName))
+                {
+                    tables.Add((table, groupPath));
+                }
+            }
+
+            foreach (PlcTagTableUserGroup userGroup in tagTableGroup.Groups)
+            {
+                CollectTagTablesWithGroupPaths(userGroup, ExchangePaths.CombineGroupPath(groupPath, userGroup.Name), regexName, tables);
+            }
         }
 
         private static IEnumerable<string> SplitGroupPath(string? groupPath)

@@ -9,6 +9,7 @@ using ModelContextProtocol.Server;
 using Siemens.Engineering;
 using Siemens.Engineering.SW;
 using Siemens.Engineering.SW.Blocks;
+using Siemens.Engineering.SW.Tags;
 using Siemens.Engineering.SW.Types;
 using TiaPortalMcpServer.Models;
 using TiaPortalMcpServer.Services;
@@ -16,7 +17,7 @@ using TiaPortalMcpServer.Services;
 namespace TiaPortalMcpServer
 {
     /// <summary>
-    /// SimaticML (.xml) export and import of PLC blocks and PLC data types.
+    /// SimaticML (.xml) export and import of PLC blocks, PLC data types and PLC tag tables.
     /// </summary>
     /// <remarks>
     /// No lambda in this class may capture a Siemens option enum (ExportOptions, ImportOptions, SWImportOptions):
@@ -31,6 +32,10 @@ namespace TiaPortalMcpServer
         private const string PreservePathTypeExportDescription = "If true, mirror the TIA project tree below exportPath: exportPath/PLC data types/<group path>/Name.xml. If false, write all files directly into exportPath";
         private const string PreservePathBlockImportDescription = "If true, read the tree written by an export with preservePath: start in importPath/Program blocks when it exists (otherwise importPath), include subdirectories and import each one into the block group of the same path below groupName. If false, import only the files directly in importPath";
         private const string PreservePathTypeImportDescription = "If true, read the tree written by an export with preservePath: start in importPath/PLC data types when it exists (otherwise importPath), include subdirectories and import each one into the type group of the same path below groupName. If false, import only the files directly in importPath";
+
+        private const string PreservePathTagTableExportDescription = "If true, mirror the TIA project tree below exportPath: exportPath/PLC tags/<group path>/Name.xml. If false, write all files directly into exportPath";
+        private const string PreservePathTagTableImportDescription = "If true, read the tree written by an export with preservePath: start in importPath/PLC tags when it exists (otherwise importPath), include subdirectories and import each one into the tag table group of the same path below groupName. If false, import only the files directly in importPath";
+        private const string SaveNote = " Changes are made in the open project; call projects_save to persist them.";
 
         private readonly ILogger<XmlExchangeTools> _logger;
         private readonly TiaPortalSessionManager _sessionManager;
@@ -534,6 +539,271 @@ namespace TiaPortalMcpServer
 
         #endregion
 
+        #region PLC tag tables
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export a PLC tag table, with its tags and user constants, as a SimaticML (.xml) file without the document info header, so repeated exports of an unchanged table are identical. Without groupName the table is searched in all tag table groups. exportPath is either a directory (the file is named after the table) or the path of an .xml file. Fails when TIA Portal writes no file. Returns the state, the written file and any error. Prerequisites: Project must be open, device must have PLC software, tag table must exist. Use tags_tagtable_import to reverse this operation.")]
+        public CallToolResult tags_tagtable_export(
+            [Description("Device name")] string deviceName,
+            [Description("Tag table name")] string tagTableName,
+            [Description("Existing directory to write <table>.xml to, or the path of the .xml file to write")] string exportPath,
+            [Description("Tag table group path, e.g. 'IO/Inputs'. Leave empty to search all groups.")] string groupName = "",
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "",
+            [Description("Replace an existing file. If false, an existing file makes the export fail")] bool overwrite = false,
+            [Description(PreservePathTagTableExportDescription)] bool preservePath = false,
+            [Description("Include default values in the export")] bool includeDefaults = true,
+            [Description("Include read-only values in the export")] bool includeReadOnly = false)
+        {
+            _logger.LogInformation("tags_tagtable_export called with deviceName='{DeviceName}', tagTableName='{TagTableName}', exportPath='{ExportPath}', groupName='{GroupName}', unitName='{UnitName}', preservePath={PreservePath}",
+                deviceName, tagTableName, exportPath, groupName, unitName, preservePath);
+
+            try
+            {
+                if (string.IsNullOrWhiteSpace(tagTableName))
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.InvalidTagName, "Tag table name cannot be empty"));
+                }
+
+                if (string.IsNullOrWhiteSpace(exportPath))
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.InvalidParameter, "Export path cannot be empty"));
+                }
+
+                var exportsToFile = string.Equals(Path.GetExtension(exportPath), ".xml", StringComparison.OrdinalIgnoreCase);
+                if (!exportsToFile && !Directory.Exists(exportPath))
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.InvalidParameter,
+                        $"Export directory '{exportPath}' does not exist; pass an existing directory or the path of an .xml file"));
+                }
+
+                var project = _sessionManager.CurrentProject;
+                if (project == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
+                }
+
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(scopeErrorCode, scopeError));
+                }
+
+                PlcTagTable? table;
+                string groupPath;
+                if (string.IsNullOrWhiteSpace(groupName))
+                {
+                    var found = _sessionManager.PortalService.FindTagTableWithGroupPath(plcScope.TagTableGroup, tagTableName);
+                    table = found.Table;
+                    groupPath = found.GroupPath;
+                }
+                else
+                {
+                    groupPath = ExchangePaths.CombineGroupPath(groupName);
+                    var group = _sessionManager.PortalService.FindTagTableGroup(plcScope.TagTableGroup, groupPath);
+                    if (group == null)
+                    {
+                        return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.TagGroupNotFound, $"Tag table group '{groupPath}' not found in '{plcScope.DisplayName}'"));
+                    }
+
+                    table = group.TagTables.Find(tagTableName);
+                }
+
+                if (table == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.TagTableNotFound, $"Tag table '{tagTableName}' not found in '{plcScope.DisplayName}'"));
+                }
+
+                var targetFile = exportsToFile
+                    ? new FileInfo(Path.GetFullPath(exportPath))
+                    : GetExportFile(exportPath, ExchangePaths.TagTablesRootFolder, groupPath, table.Name, preservePath);
+                var result = _blocksAdapter.ExportTagTableAsXml(table, targetFile, groupPath, ToExportOptions(includeDefaults, includeReadOnly), overwrite);
+                return ToSingleResponse(result, $"Failed to export tag table '{tagTableName}'");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in tags_tagtable_export");
+                return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.TiaError, "Unexpected error", ex.Message));
+            }
+        }
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export the PLC tag tables of all tag table groups, including the default tag table, as SimaticML (.xml) files with their tags and user constants, optionally filtered by name/regex and optionally mirroring the TIA group structure as directories (exportPath/PLC tags/<group path>/<table>.xml). Files are written without the document info header, so repeated exports of unchanged tables are identical. Each table is exported independently; returns succeeded/failed counts and a per-table state, group path and file. Prerequisites: Project must be open, device must have PLC software, exportPath must exist.")]
+        public CallToolResult tags_tagtable_export_all(
+            [Description("Device name")] string deviceName,
+            [Description("Directory to write the .xml files to")] string exportPath,
+            [Description("Case-insensitive name fragment or regular expression to filter tag tables. Empty string exports all tag tables.")] string regexName = "",
+            [Description(PreservePathTagTableExportDescription)] bool preservePath = false,
+            [Description("Include default values in the export")] bool includeDefaults = true,
+            [Description("Include read-only values in the export")] bool includeReadOnly = false,
+            [Description("Replace existing files. If false, an existing file makes that table's export fail")] bool overwrite = false,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
+        {
+            _logger.LogInformation("tags_tagtable_export_all called with deviceName='{DeviceName}', exportPath='{ExportPath}', regexName='{RegexName}', preservePath={PreservePath}, unitName='{UnitName}'",
+                deviceName, exportPath, regexName, preservePath, unitName);
+
+            try
+            {
+                if (!NameFilter.TryValidate(regexName, out var filterError))
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, filterError));
+                }
+
+                if (!Directory.Exists(exportPath))
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, $"Export directory '{exportPath}' does not exist"));
+                }
+
+                var project = _sessionManager.CurrentProject;
+                if (project == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
+                }
+
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(scopeErrorCode, scopeError));
+                }
+
+                var items = _sessionManager.PortalService.GetTagTablesWithGroupPaths(plcScope.TagTableGroup, regexName)
+                    .Select(t => (t.Table, GetExportFile(exportPath, ExchangePaths.TagTablesRootFolder, t.GroupPath, t.Table.Name, preservePath), t.GroupPath))
+                    .ToList();
+
+                var result = _blocksAdapter.ExportTagTablesAsXml(items, ToExportOptions(includeDefaults, includeReadOnly), overwrite);
+                return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateSuccess(result));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in tags_tagtable_export_all");
+                return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.TiaError, "Unexpected error", ex.Message));
+            }
+        }
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Import the PLC tag tables of a SimaticML (.xml) file into a tag table group. Missing groups on the path are created. Returns the state and the imported tag tables. Prerequisites: Project must be open, device must have PLC software, the file must be a SimaticML tag table export. Use dryRun=true to check the file against the project without importing; it lists the existing tag table that would be replaced. groupName is a path such as 'IO/Inputs'; leave it empty for the root tag table group." + SaveNote)]
+        public CallToolResult tags_tagtable_import(
+            [Description("Device name")] string deviceName,
+            [Description("Path of the SimaticML .xml file")] string filePath,
+            [Description("Target tag table group path, e.g. 'IO/Inputs'. Leave empty for the root tag table group.")] string groupName = "",
+            [Description(ImportOptionDescription)] string importOption = "Override",
+            [Description("If true, only validate the file and options without importing")] bool dryRun = false,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
+        {
+            _logger.LogInformation("tags_tagtable_import called with deviceName='{DeviceName}', filePath='{FilePath}', groupName='{GroupName}', importOption='{ImportOption}', dryRun={DryRun}, unitName='{UnitName}'",
+                deviceName, filePath, groupName, importOption, dryRun, unitName);
+
+            try
+            {
+                if (!EnumFlags.TryParse<ImportOptions>(importOption, out var importOptions, out var importOptionError))
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.InvalidParameter, importOptionError));
+                }
+
+                var project = _sessionManager.CurrentProject;
+                if (project == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
+                }
+
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(scopeErrorCode, scopeError));
+                }
+
+                var plan = XmlImportPlanner.PlanFile(new FileInfo(filePath), ExchangePaths.CombineGroupPath(groupName), SimaticMlInspector.KindTagTable);
+                if (plan.Result != null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.InvalidParameter,
+                        $"Cannot import '{filePath}' as a tag table: {string.Join("; ", plan.Result.Messages)}"));
+                }
+
+                var overrideExisting = (importOptions & ImportOptions.Override) != 0;
+                if (dryRun)
+                {
+                    var validation = ValidateTagTableImport(plcScope, plan, overrideExisting);
+                    return ToSingleResponse(validation, $"Validation of '{filePath}' failed");
+                }
+
+                var result = ImportTagTables(plcScope, new List<XmlImportPlanItem> { plan }, importOptions)[0];
+                return ToSingleResponse(result, $"Import of '{filePath}' failed");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in tags_tagtable_import");
+                return McpToolResults.From(ToolResponse<DocumentOperationResult>.CreateError(ErrorCodes.TiaError, "Unexpected error", ex.Message));
+            }
+        }
+
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Import the PLC tag tables of all SimaticML (.xml) files in a directory, optionally filtered by file name/regex. With preservePath=true, subdirectories are included and map to tag table groups (created when missing), reading the tree written by tags_tagtable_export_all. Files holding other objects, such as blocks, are skipped. Failed files are retried while another pass makes progress. Returns succeeded/failed/skipped counts and a per-file state. Prerequisites: Project must be open, device must have PLC software. Use dryRun=true to check the files without importing; it lists the existing tag tables that would be replaced." + SaveNote)]
+        public CallToolResult tags_tagtable_import_all(
+            [Description("Device name")] string deviceName,
+            [Description("Directory containing the SimaticML .xml files")] string importPath,
+            [Description("Target tag table group path, e.g. 'IO/Inputs'. Leave empty for the root tag table group.")] string groupName = "",
+            [Description("Case-insensitive name fragment or regular expression to filter which .xml files to import. Empty string imports all.")] string regexName = "",
+            [Description(PreservePathTagTableImportDescription)] bool preservePath = false,
+            [Description(ImportOptionDescription)] string importOption = "Override",
+            [Description("If true, only validate the files and options without importing")] bool dryRun = false,
+            [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
+        {
+            _logger.LogInformation("tags_tagtable_import_all called with deviceName='{DeviceName}', importPath='{ImportPath}', groupName='{GroupName}', regexName='{RegexName}', preservePath={PreservePath}, importOption='{ImportOption}', dryRun={DryRun}, unitName='{UnitName}'",
+                deviceName, importPath, groupName, regexName, preservePath, importOption, dryRun, unitName);
+
+            try
+            {
+                if (!EnumFlags.TryParse<ImportOptions>(importOption, out var importOptions, out var importOptionError))
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, importOptionError));
+                }
+
+                if (!NameFilter.TryValidate(regexName, out var filterError))
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, filterError));
+                }
+
+                var directory = new DirectoryInfo(importPath);
+                if (!directory.Exists)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.InvalidParameter, $"Import directory '{importPath}' does not exist"));
+                }
+
+                var project = _sessionManager.CurrentProject;
+                if (project == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.NoProject, "No project is currently open"));
+                }
+
+                var plcScope = _sessionManager.PortalService.ResolvePlcScope(project, deviceName, unitName, out var scopeErrorCode, out var scopeError);
+                if (plcScope == null)
+                {
+                    return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(scopeErrorCode, scopeError));
+                }
+
+                var plans = XmlImportPlanner.PlanDirectory(directory, groupName, preservePath, regexName, SimaticMlInspector.KindTagTable);
+                var overrideExisting = (importOptions & ImportOptions.Override) != 0;
+
+                IList<DocumentOperationResult> results;
+                if (dryRun)
+                {
+                    results = new List<DocumentOperationResult>();
+                    foreach (var plan in plans)
+                    {
+                        results.Add(plan.Result ?? ValidateTagTableImport(plcScope, plan, overrideExisting));
+                    }
+                }
+                else
+                {
+                    results = ImportTagTables(plcScope, plans, importOptions);
+                }
+
+                return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateSuccess(DocumentBatchResult.From(results)));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in tags_tagtable_import_all");
+                return McpToolResults.From(ToolResponse<DocumentBatchResult>.CreateError(ErrorCodes.TiaError, "Unexpected error", ex.Message));
+            }
+        }
+
+        #endregion
+
         #region Helpers
 
         /// <summary>
@@ -621,6 +891,56 @@ namespace TiaPortalMcpServer
                 results[pendingIndexes[i]] = imported[i];
             }
             return results;
+        }
+
+        /// <summary>
+        /// Imports the planned tag table files, creating missing tag table groups. Results come back in the order of <paramref name="plans"/>.
+        /// </summary>
+        private IList<DocumentOperationResult> ImportTagTables(PlcScope plcScope, IList<XmlImportPlanItem> plans, ImportOptions importOptions)
+        {
+            var results = new DocumentOperationResult[plans.Count];
+            var pending = new List<(PlcTagTableGroup Group, XmlImportPlanItem Item)>();
+            var pendingIndexes = new List<int>();
+            for (var i = 0; i < plans.Count; i++)
+            {
+                var plan = plans[i];
+                if (plan.Result != null)
+                {
+                    results[i] = plan.Result;
+                    continue;
+                }
+
+                try
+                {
+                    var existed = _sessionManager.PortalService.FindTagTableGroup(plcScope.TagTableGroup, plan.GroupPath) != null;
+                    var group = _sessionManager.PortalService.GetOrCreateTagTableGroup(plcScope.TagTableGroup, plan.GroupPath);
+                    if (!existed)
+                    {
+                        _logger.LogInformation("Created tag table group '{GroupPath}' in '{Scope}'", plan.GroupPath, plcScope.DisplayName);
+                    }
+                    pending.Add((group, plan));
+                    pendingIndexes.Add(i);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to create tag table group {GroupPath}", plan.GroupPath);
+                    results[i] = XmlImportPlanner.CreateResult(plan, DocumentOperationResult.StateFailure, $"Cannot create tag table group '{plan.GroupPath}': {ex.Message}");
+                }
+            }
+
+            var imported = _blocksAdapter.ImportTagTablesFromXmlFiles(pending, importOptions);
+            for (var i = 0; i < imported.Count; i++)
+            {
+                results[pendingIndexes[i]] = imported[i];
+            }
+            return results;
+        }
+
+        private DocumentOperationResult ValidateTagTableImport(PlcScope plcScope, XmlImportPlanItem plan, bool overrideExisting)
+        {
+            var groupExists = _sessionManager.PortalService.FindTagTableGroup(plcScope.TagTableGroup, plan.GroupPath) != null;
+            var existing = _sessionManager.PortalService.FindTagTableWithGroupPath(plcScope.TagTableGroup, plan.Content!.Name!);
+            return ValidateImport(plan, "tag table", groupExists, existing.Table != null, existing.GroupPath, overrideExisting);
         }
 
         private DocumentOperationResult ValidateBlockImport(PlcScope plcScope, XmlImportPlanItem plan, bool overrideExisting)

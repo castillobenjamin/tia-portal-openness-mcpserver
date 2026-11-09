@@ -116,7 +116,6 @@ The block, tag and software tools below (and the advanced block tools) take an o
 - `tags_tagtable_list` - List tag tables
 - `tags_tagtable_get` - Get a tag table
 - `tags_tagtable_delete` - Delete a tag table
-- `tags_tagtable_export` - Export a tag table
 - `tags_tagtable_open_editor` - Open a tag table in the TIA editor
 - `tags_group_create` - Create a tag group
 - `tags_group_list` - List tag groups
@@ -148,7 +147,7 @@ The block, tag and software tools below (and the advanced block tools) take an o
 - `blocks_ob_priority_set` - Set OB priority
 
 ### SimaticML XML Exchange
-Export and import blocks and PLC data types (UDTs) as SimaticML `.xml` files. These tools also take an optional `unitName`. Exports search all groups. `importOption` (`None`, `Override`, `SkipInactiveCultures`, `ActivateInactiveCultures`) and `swImportOption` (`IgnoreStructuralChanges`, `IgnoreMissingReferencedObjects`, `IgnoreUnitAttributes`) take comma-separated names. Imports support `dryRun`, skip files that hold the other kind of object, retry files whose dependencies were not imported yet, and save the project after a successful import.
+Export and import blocks, PLC data types (UDTs) and PLC tag tables as SimaticML `.xml` files. These tools also take an optional `unitName`. Exports search all groups. `importOption` (`None`, `Override`, `SkipInactiveCultures`, `ActivateInactiveCultures`) and `swImportOption` (`IgnoreStructuralChanges`, `IgnoreMissingReferencedObjects`, `IgnoreUnitAttributes`) take comma-separated names. Imports support `dryRun`, skip files that hold the other kind of object, retry files whose dependencies were not imported yet, and save the project after a successful block or type import.
 
 - `blocks_export_as_xml` - Export one block as SimaticML
 - `blocks_export_all_as_xml` - Export all blocks, optionally filtered by name/regex
@@ -158,6 +157,12 @@ Export and import blocks and PLC data types (UDTs) as SimaticML `.xml` files. Th
 - `types_export_all_as_xml` - Export all PLC data types, optionally filtered by name/regex
 - `types_import_from_xml` - Import the PLC data types of one SimaticML file into a type group
 - `types_import_all_from_xml` - Import the PLC data types of all SimaticML files in a directory
+- `tags_tagtable_export` - Export one PLC tag table as SimaticML, to a directory or an `.xml` file path
+- `tags_tagtable_export_all` - Export all PLC tag tables, optionally filtered by name/regex
+- `tags_tagtable_import` - Import one tag table file into a tag table group
+- `tags_tagtable_import_all` - Import the tag tables of all SimaticML files in a directory
+
+Tag table exports leave out the document info header (export settings, installed products, timestamp), so exporting an unchanged table again gives an identical file, and fail when TIA Portal writes no file or an empty one. Tag table imports take `importOption` only (default `Override`) and do not save the project; call `projects_save` to keep the result.
 
 ### SIMATIC SD Documents
 Export and import blocks as SIMATIC SD documents (`.s7dcl`/`.s7res`). These tools also take an optional `unitName`.
@@ -168,7 +173,7 @@ Export and import blocks as SIMATIC SD documents (`.s7dcl`/`.s7res`). These tool
 - `blocks_import_all_from_documents` - Import all document pairs in a directory
 
 ### Keeping the TIA Folder Structure (`preservePath`)
-The bulk export and import tools for SimaticML and SD documents, and the single-object exports, take `preservePath`. With `preservePath=true`, exports mirror the TIA project tree below `exportPath`: blocks go below `Program blocks/` and PLC data types below `PLC data types/`, each followed by the group path. Blocks and types can share one `exportPath`:
+The bulk export and import tools for SimaticML and SD documents, and the single-object exports, take `preservePath`. With `preservePath=true`, exports mirror the TIA project tree below `exportPath`: blocks go below `Program blocks/`, PLC data types below `PLC data types/` and tag tables below `PLC tags/`, each followed by the group path. All three can share one `exportPath`:
 
 ```text
 exportPath/
@@ -177,9 +182,12 @@ exportPath/
     Motion/Axis/Axis_FB.xml
   PLC data types/
     Motion/Axis_UDT.xml
+  PLC tags/
+    Default tag table.xml
+    IO/Inputs.xml
 ```
 
-Bulk imports with `preservePath=true` read the same layout back. Pass the same path as `importPath`: the tree starts in `importPath/Program blocks` (blocks) or `importPath/PLC data types` (types) when that folder exists, and in `importPath` itself otherwise. Each subdirectory is imported into the group of the same path below `groupName`, and missing groups are created. Without `preservePath`, exports write all files directly into `exportPath` and imports read only the files directly in `importPath`.
+Bulk imports with `preservePath=true` read the same layout back. Pass the same path as `importPath`: the tree starts in `importPath/Program blocks` (blocks) or `importPath/PLC data types` (types) or `importPath/PLC tags` (tag tables) when that folder exists, and in `importPath` itself otherwise. Each subdirectory is imported into the group of the same path below `groupName`, and missing groups are created. Without `preservePath`, exports write all files directly into `exportPath` and imports read only the files directly in `importPath`.
 
 ### Utility Operations
 - `utilities_get_project_info` - Get project information
@@ -287,7 +295,7 @@ This will allow you to interactively test all available tools.
 - Dependency injection with Microsoft.Extensions.Hosting
 - **Logging:** Serilog configured to write to stderr (required for MCP protocol compatibility)
 - **Project structure is organized by feature and concern:**
-   - `Tools/` — MCP tool classes grouped by domain (ProjectManagement, Device, DeviceItem, Software, Tag, Blocks, Compilation, File, HmiTarget, Utility, Sampling, UserInteraction, Test, Hardware)
+   - `Tools/` — MCP tool classes grouped by domain (ProjectManagement, Device, DeviceItem, Software, Tag, Blocks, XmlExchange, Compilation, File, HmiTarget, Utility, Sampling, UserInteraction, Test, Hardware)
    - `Services/` — TIA Portal adapters and session management (TiaPortalService, TiaPortalSessionManager, BlocksAdapter, HmiTargetAdapter, FileAdapter)
    - `Models/` — Data transfer objects and result models
    - `Extensions/` — DI and service collection helpers

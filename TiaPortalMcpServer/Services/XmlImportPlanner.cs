@@ -44,11 +44,11 @@ namespace TiaPortalMcpServer.Services
         /// <summary>
         /// Plans the import of the .xml files in <paramref name="directory"/>. With <paramref name="preservePath"/>,
         /// subdirectories are included and each one maps to a user group below <paramref name="groupName"/>; when
-        /// <paramref name="directory"/> holds a "Program blocks" (blocks) or "PLC data types" (types) folder, the tree starts there.
+        /// <paramref name="directory"/> holds a "Program blocks" (blocks), "PLC data types" (types) or "PLC tags" (tag tables) folder, the tree starts there.
         /// </summary>
         public static List<XmlImportPlanItem> PlanDirectory(DirectoryInfo directory, string? groupName, bool preservePath, string? regexName, string expectedKind)
         {
-            var rootFolder = expectedKind == SimaticMlInspector.KindType ? ExchangePaths.TypesRootFolder : ExchangePaths.BlocksRootFolder;
+            var rootFolder = GetRootFolder(expectedKind);
             return ExchangePaths.FindFiles(directory, ".xml", groupName, preservePath, regexName, rootFolder)
                 .Select(f => PlanFile(f.File, f.GroupPath, expectedKind))
                 .ToList();
@@ -95,12 +95,26 @@ namespace TiaPortalMcpServer.Services
             };
         }
 
+        /// <summary>
+        /// The folder that stands for the root group of <paramref name="kind"/> in an exported tree, such as "Program blocks".
+        /// </summary>
+        public static string GetRootFolder(string kind)
+        {
+            return kind switch
+            {
+                SimaticMlInspector.KindType => ExchangePaths.TypesRootFolder,
+                SimaticMlInspector.KindTagTable => ExchangePaths.TagTablesRootFolder,
+                _ => ExchangePaths.BlocksRootFolder
+            };
+        }
+
         private static string DescribeKind(string kind)
         {
             return kind switch
             {
                 SimaticMlInspector.KindBlock => "a block",
                 SimaticMlInspector.KindType => "a PLC data type",
+                SimaticMlInspector.KindTagTable => "a PLC tag table",
                 _ => "another kind of object"
             };
         }
