@@ -250,7 +250,7 @@ Tools for WinCC Unified HMI software (Unified Comfort Panels and PC runtimes). W
 - `hmi_unified_graphiclists_export` - Export all graphic lists with their entries to `<fileName>.hmi.yml` (YAML)
 - `hmi_unified_graphiclists_import` - Import graphic lists from such a file
 - `hmi_unified_systemtextlists_export` - Export all system text lists to `<fileName>.hmi.yml` and `<fileName>.TextLibrary.hmi.yml`
-- `hmi_unified_systemtextlists_import` - Import system text lists from such a file. In TIA Portal V21 this import was seen to double `@@` escapes in texts; compare a fresh export before saving
+- `hmi_unified_systemtextlists_import` - Import system text lists from such a file. In TIA Portal V21 this import was seen to double `@@` escapes in texts (single `@` placeholders such as `@3%s@` stay as they are), so do not edit the file to compensate; compare a fresh export before saving. The result's `warnings` list every line of the file and of its `.TextLibrary.hmi.yml` that holds `@@`, also with `dryRun`
 
 For the list tools, `fileName` is a base name such as `GraphicLists`; TIA Portal adds its own extension. The imports accept the same base name or the name of the written `.hmi.yml` file.
 - `hmi_unified_scripts_list` - List global script modules

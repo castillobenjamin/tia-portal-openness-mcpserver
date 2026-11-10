@@ -780,7 +780,7 @@ namespace TiaPortalMcpServer
                     software => software.HmiSystemTextLists.Count));
         }
 
-        [McpServerTool(Destructive = true, OpenWorld = true), Description("Import system text lists into a WinCC Unified HMI from a file written by hmi_unified_systemtextlists_export (or edited from one), updating their texts. Caution: in TIA Portal V21 this import was seen to double the '@@' escapes in texts such as '@@5%Y-%m-%d %H:%M:%S@@'; export again and compare before saving. Prerequisites: Project must be open, device must have WinCC Unified HMI software, the file must exist in importPath. Use dryRun=true to check the file without importing." + SaveNote)]
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Import system text lists into a WinCC Unified HMI from a file written by hmi_unified_systemtextlists_export (or edited from one), updating their texts. Caution: in TIA Portal V21 this import was seen to double the '@@' escapes in texts such as '@@5%Y-%m-%d %H:%M:%S@@'; export again and compare before saving. Single '@' placeholders such as '@3%s@' are not affected, so do not edit the file to compensate. The result's warnings list every line of the file and of its <name>.TextLibrary.hmi.yml that holds '@@', also with dryRun=true. Prerequisites: Project must be open, device must have WinCC Unified HMI software, the file must exist in importPath. Use dryRun=true to check the file without importing." + SaveNote)]
         public CallToolResult hmi_unified_systemtextlists_import(
             [Description(DeviceDescription)] string deviceName,
             [Description("Directory containing the import file")] string importPath,
@@ -791,7 +791,8 @@ namespace TiaPortalMcpServer
             return Run<HmiOperationResult>("hmi_unified_systemtextlists_import", () =>
                 ImportListFile(deviceName, importPath, fileName, dryRun, "system text lists",
                     (software, directory, name) => software.HmiSystemTextLists.Import(directory, name),
-                    software => software.HmiSystemTextLists.Count));
+                    software => software.HmiSystemTextLists.Count,
+                    file => HmiExchangeFiles.DoubleEscapeWarnings(HmiExchangeFiles.SystemTextListFiles(file))));
         }
 
         [McpServerTool(Destructive = true, OpenWorld = true), Description("Export the HMI tags of a WinCC Unified HMI per tag table, into one directory per table: exportPath/<tag table group path>/<table name>/ (TIA Portal V21 cannot export all tags of a device at once). Exports all tables, one table (tagTableName) or one tag (tagName). A table that fails does not stop the others. Returns the written files and one line per table. Prerequisites: Project must be open, device must have WinCC Unified HMI software, exportPath must exist. Use hmi_unified_tags_import to reverse this operation.")]
@@ -1465,7 +1466,8 @@ namespace TiaPortalMcpServer
             bool dryRun,
             string listKind,
             Func<HmiSoftware, DirectoryInfo, string, bool> import,
-            Func<HmiSoftware, int> count)
+            Func<HmiSoftware, int> count,
+            Func<FileInfo, List<string>>? checkFile = null)
         {
             if (!TryValidateFileName(fileName, out var fileError))
             {
@@ -1493,6 +1495,12 @@ namespace TiaPortalMcpServer
 
             var result = new HmiOperationResult { DeviceName = deviceName, Target = listKind, DryRun = dryRun, Files = new List<string> { file.FullName } };
             result.Changes.Add($"Import {listKind} from '{file.FullName}'");
+            var warnings = checkFile?.Invoke(file);
+            if (warnings != null && warnings.Count > 0)
+            {
+                result.Warnings = warnings;
+            }
+
             if (dryRun)
             {
                 return ToolResponse<HmiOperationResult>.CreateSuccess(result);

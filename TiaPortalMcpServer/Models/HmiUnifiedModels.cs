@@ -251,5 +251,11 @@ namespace TiaPortalMcpServer.Models
 
         [JsonProperty("files", NullValueHandling = NullValueHandling.Ignore)]
         public IList<string>? Files { get; set; }
+
+        /// <summary>
+        /// Things to check after the operation, such as texts a known TIA Portal import bug may change.
+        /// </summary>
+        [JsonProperty("warnings", NullValueHandling = NullValueHandling.Ignore)]
+        public IList<string>? Warnings { get; set; }
     }
 }

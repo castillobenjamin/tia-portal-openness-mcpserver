@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using TiaPortalMcpServer.Services;
 using Xunit;
 
@@ -89,6 +90,79 @@ namespace TiaPortalMcpServer.Tests
             using (var files = new SimaticMlTestFiles())
             {
                 Assert.Null(HmiExchangeFiles.FindImportFile(files.Root, "GraphicLists"));
+            }
+        }
+
+        [Fact]
+        public void SystemTextListFiles_IncludesTheTextLibraryFile()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var main = files.Write("SystemTextLists.hmi.yml", "x");
+                var library = files.Write("SystemTextLists.TextLibrary.hmi.yml", "y");
+
+                var found = HmiExchangeFiles.SystemTextListFiles(new FileInfo(main));
+
+                Assert.Equal(new[] { main, library }, found.Select(f => f.FullName).ToArray());
+            }
+        }
+
+        [Fact]
+        public void SystemTextListFiles_WithoutTextLibrary_ReturnsTheMainFileOnly()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var main = files.Write("SystemTextLists.hmi.yml", "x");
+
+                var found = Assert.Single(HmiExchangeFiles.SystemTextListFiles(new FileInfo(main)));
+
+                Assert.Equal(main, found.FullName);
+            }
+        }
+
+        [Fact]
+        public void DoubleEscapeWarnings_ListsOnlyLinesWithDoubleAt()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var main = files.Write("SystemTextLists.hmi.yml", "Text: MyTextLibrary.Text_1\n");
+                files.Write("SystemTextLists.TextLibrary.hmi.yml",
+                    "      Text_117:\n" +
+                    "        - Unknown error (@3%s@)\n" +
+                    "        - 'scheduled for: @@5%Y-%m-%d %H:%M:%S@@.'\n");
+
+                var warnings = HmiExchangeFiles.DoubleEscapeWarnings(HmiExchangeFiles.SystemTextListFiles(new FileInfo(main)));
+
+                Assert.Equal(2, warnings.Count);
+                Assert.StartsWith("1 line(s) hold '@@'", warnings[0]);
+                Assert.Equal("SystemTextLists.TextLibrary.hmi.yml line 3: - 'scheduled for: @@5%Y-%m-%d %H:%M:%S@@.'", warnings[1]);
+            }
+        }
+
+        [Fact]
+        public void DoubleEscapeWarnings_NoDoubleAt_ReturnsNothing()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var main = files.Write("SystemTextLists.hmi.yml", "- Unknown error (@3%s@)\n");
+
+                Assert.Empty(HmiExchangeFiles.DoubleEscapeWarnings(new[] { new FileInfo(main) }));
+            }
+        }
+
+        [Fact]
+        public void DoubleEscapeWarnings_ManyLines_ListsTheFirstAndCountsTheRest()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var lines = string.Concat(Enumerable.Range(1, HmiExchangeFiles.MaxListedDoubleEscapes + 5).Select(i => $"- '@@{i}@@'\n"));
+                var main = files.Write("SystemTextLists.hmi.yml", lines);
+
+                var warnings = HmiExchangeFiles.DoubleEscapeWarnings(new[] { new FileInfo(main) });
+
+                Assert.Equal(HmiExchangeFiles.MaxListedDoubleEscapes + 2, warnings.Count);
+                Assert.StartsWith($"{HmiExchangeFiles.MaxListedDoubleEscapes + 5} line(s)", warnings[0]);
+                Assert.Equal("... and 5 more line(s) holding '@@'", warnings[warnings.Count - 1]);
             }
         }
     }

@@ -43,6 +43,79 @@ namespace TiaPortalMcpServer.Services
             return yaml.Exists ? yaml : null;
         }
 
+        public const string TextLibrarySuffix = ".TextLibrary";
+
+        public const string DoubleEscape = "@@";
+
+        /// <summary>
+        /// At most this many texts holding "@@" are listed one by one; the rest are only counted.
+        /// </summary>
+        public const int MaxListedDoubleEscapes = 20;
+
+        /// <summary>
+        /// The files a system text list import reads: the main file and, when it exists, the
+        /// "&lt;name&gt;.TextLibrary.hmi.yml" written next to it, which holds the texts.
+        /// </summary>
+        public static List<FileInfo> SystemTextListFiles(FileInfo mainFile)
+        {
+            var files = new List<FileInfo> { mainFile };
+            var name = mainFile.Name;
+            var baseName = name.EndsWith(YamlExtension, StringComparison.OrdinalIgnoreCase)
+                ? name.Substring(0, name.Length - YamlExtension.Length)
+                : Path.GetFileNameWithoutExtension(name);
+            var library = new FileInfo(Path.Combine(mainFile.DirectoryName ?? string.Empty, baseName + TextLibrarySuffix + YamlExtension));
+            if (library.Exists && !string.Equals(library.FullName, mainFile.FullName, StringComparison.OrdinalIgnoreCase))
+            {
+                files.Add(library);
+            }
+            return files;
+        }
+
+        /// <summary>
+        /// Warnings for the lines of <paramref name="files"/> that hold "@@". TIA Portal V21 was seen to double "@@" when
+        /// importing system text lists (single "@" placeholders such as "@3%s@" stay as they are), so these texts must be
+        /// checked after the import. Empty when no line holds "@@".
+        /// </summary>
+        public static List<string> DoubleEscapeWarnings(IEnumerable<FileInfo> files)
+        {
+            var hits = new List<string>();
+            var total = 0;
+            foreach (var file in files)
+            {
+                var lineNumber = 0;
+                foreach (var line in File.ReadLines(file.FullName))
+                {
+                    lineNumber++;
+                    if (line.IndexOf(DoubleEscape, StringComparison.Ordinal) < 0)
+                    {
+                        continue;
+                    }
+
+                    total++;
+                    if (hits.Count < MaxListedDoubleEscapes)
+                    {
+                        hits.Add($"{file.Name} line {lineNumber}: {line.Trim()}");
+                    }
+                }
+            }
+
+            var warnings = new List<string>();
+            if (total == 0)
+            {
+                return warnings;
+            }
+
+            warnings.Add($"{total} line(s) hold '{DoubleEscape}'. TIA Portal V21 was seen to double '{DoubleEscape}' when importing system text lists " +
+                $"(for example '@@5%Y-%m-%d %H:%M:%S@@' became '@@@@5%Y-%m-%d %H:%M:%S@@@@'). Do not edit the file to compensate; " +
+                "after the import, export again and compare these texts before saving the project.");
+            warnings.AddRange(hits);
+            if (total > hits.Count)
+            {
+                warnings.Add($"... and {total - hits.Count} more line(s) holding '{DoubleEscape}'");
+            }
+            return warnings;
+        }
+
         /// <summary>
         /// Directory of one HMI tag table below an export root: exportPath/&lt;group path&gt;/&lt;table name&gt;/.
         /// </summary>
