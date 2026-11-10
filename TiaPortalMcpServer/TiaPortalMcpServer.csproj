@@ -39,6 +39,7 @@
   <ItemGroup>
     <Compile Remove="TiaPortalMcpServer.Tests\**" />
     <None Include="TiaPortalMcpServer.Tests\**" />
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

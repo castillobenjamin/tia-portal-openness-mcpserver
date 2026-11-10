@@ -49,11 +49,22 @@ namespace TiaPortalMcpServer
         {
             try
             {
-                var builder = Host.CreateApplicationBuilder(args);
+                // Read appsettings.json next to the exe: MCP clients start the server in their own working directory
+                var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+                {
+                    Args = args,
+                    ContentRootPath = AppContext.BaseDirectory
+                });
 
-                // Configure Serilog from appsettings.json and write to stderr
+                // Serilog from appsettings.json (stderr), plus a log file next to the exe, so a log survives a TIA Portal
+                // crash and does not land in the client's working directory
                 Log.Logger = new LoggerConfiguration()
                     .ReadFrom.Configuration(builder.Configuration)
+                    .WriteTo.File(
+                        System.IO.Path.Combine(AppContext.BaseDirectory, "logs", "tiaportal-mcp.log"),
+                        rollingInterval: RollingInterval.Day,
+                        retainedFileCountLimit: 7,
+                        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
                     .CreateLogger();
 
                 // Use Serilog for all logging

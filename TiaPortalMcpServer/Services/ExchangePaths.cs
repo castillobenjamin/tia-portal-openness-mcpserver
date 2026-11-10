@@ -12,7 +12,9 @@ namespace TiaPortalMcpServer.Services
     {
         public ExchangeFile(FileInfo file, string groupPath)
         {
-            File = file;
+            // A FileInfo from DirectoryInfo.GetFiles keeps only the file name as its original path, which is what
+            // ToString() returns. Openness imports read that and reject it as a relative path.
+            File = new FileInfo(file.FullName);
             GroupPath = groupPath;
         }
 

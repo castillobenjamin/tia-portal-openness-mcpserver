@@ -282,6 +282,104 @@ namespace TiaPortalMcpServer.Tests
             Assert.True(json.IndexOf("\"Motor\"", StringComparison.Ordinal) < json.IndexOf("\"Pump\"", StringComparison.Ordinal));
         }
 
+        /// <summary>
+        /// Stands in for an engineering object outside the screen, such as a faceplate's library type.
+        /// </summary>
+        private sealed class FakeLibraryType
+        {
+            public int ReadCount;
+
+            public string Name => "Motor_FP";
+
+            public string Version
+            {
+                get
+                {
+                    ReadCount++;
+                    return "1.0.2";
+                }
+            }
+        }
+
+        private sealed class FakePart
+        {
+            public int Width { get; set; } = 2;
+        }
+
+        private sealed class FakeFaceplate
+        {
+            public string Name { get; set; } = "Motor_1";
+
+            public FakePart Border { get; set; } = new FakePart();
+
+            public FakeLibraryType ContainedType { get; set; } = new FakeLibraryType();
+
+            public List<FakeLibraryType> Usages { get; set; } = new List<FakeLibraryType> { new FakeLibraryType() };
+
+            public List<FakeDynamization> Dynamizations { get; set; } = new List<FakeDynamization> { new FakeDynamization { PropertyName = "Visible" } };
+        }
+
+        private static bool OwnsAllButLibraryTypes(object value, object owner)
+        {
+            return !(value is FakeLibraryType) && !(value is List<FakeLibraryType>);
+        }
+
+        [Fact]
+        public void Snapshot_WritesReferencesWithoutReadingThem()
+        {
+            var faceplate = new FakeFaceplate();
+            var screen = new FakeScreen();
+            screen.ScreenItems.Add(faceplate);
+            var serializer = new HmiSnapshotSerializer("Main.scripts", ConvertText, OwnsAllButLibraryTypes);
+
+            var item = (JObject)serializer.Serialize(screen, "Main")["ScreenItems"][0];
+
+            Assert.Equal(new JObject { ["@type"] = "FakeLibraryType", ["@ref"] = "Motor_FP" }, item["ContainedType"]);
+            Assert.Equal("(collection)", (string)item["Usages"]["@ref"]);
+            Assert.Equal(0, faceplate.ContainedType.ReadCount);
+            Assert.Equal(0, faceplate.Usages[0].ReadCount);
+            Assert.Equal(2, (int)item["Border"]["Width"]);
+        }
+
+        [Fact]
+        public void Snapshot_AlwaysReadsScreenItemsAndKeyedCollections()
+        {
+            var screen = new FakeScreen();
+            screen.ScreenItems.Add(new FakeFaceplate());
+            var serializer = new HmiSnapshotSerializer("Main.scripts", ConvertText, (value, owner) => false);
+
+            var item = (JObject)serializer.Serialize(screen, "Main")["ScreenItems"][0];
+
+            Assert.Equal("Motor_1", (string)item["Name"]);
+            Assert.Equal("Script", (string)item["Dynamizations"]["Visible"]["DynamizationType"]);
+            Assert.NotNull(item["Border"]["@ref"]);
+        }
+
+        [Fact]
+        public void Snapshot_OwnerCheckThatThrows_WritesAReference()
+        {
+            var screen = new FakeScreen();
+            screen.ScreenItems.Add(new FakeFaceplate());
+            var serializer = new HmiSnapshotSerializer("Main.scripts", ConvertText, (value, owner) => throw new InvalidOperationException("no parent"));
+
+            var item = (JObject)serializer.Serialize(screen, "Main")["ScreenItems"][0];
+
+            Assert.Equal("FakeLibraryType", (string)item["ContainedType"]["@type"]);
+            Assert.Equal("Motor_FP", (string)item["ContainedType"]["@ref"]);
+        }
+
+        [Fact]
+        public void Snapshot_TracesTheRootAndEachScreenItem()
+        {
+            var traced = new List<string>();
+            var serializer = new HmiSnapshotSerializer("Main.scripts", ConvertText, null, traced.Add);
+
+            serializer.Serialize(CreateScreen(), "Main");
+            serializer.SerializeNamed(new List<FakeAlarm> { new FakeAlarm { Name = "Pump" } }, "DiscreteAlarms");
+
+            Assert.Equal(new[] { "Main", "Main/Stop", "Main/Start", "DiscreteAlarms/Pump" }, traced);
+        }
+
         [Fact]
         public void Serialize_WritesTheGivenFormat()
         {

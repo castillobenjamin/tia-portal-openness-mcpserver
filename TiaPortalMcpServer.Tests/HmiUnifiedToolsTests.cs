@@ -1,3 +1,4 @@
+using System.IO;
 using Microsoft.Extensions.DependencyInjection;
 using TiaPortalMcpServer.Models;
 using TiaPortalMcpServer.Services;
@@ -177,10 +178,36 @@ namespace TiaPortalMcpServer.Tests
         {
             using (var files = new SimaticMlTestFiles())
             {
-                files.Write("HmiTags.xlsx", "x");
+                files.Write(Path.Combine("Alarms", "HmiAlarmTags", "Tags.hmi.yml"), "x");
                 var response = ParseToolResult<object>(_tools.hmi_unified_tags_import("TabletHMI", files.Root, dryRun: true));
                 Assert.False(response.Success);
                 Assert.Equal(ErrorCodes.NoProject, response.ErrorCode);
+            }
+        }
+
+        [Fact]
+        public void TagsImport_FilesOnlyInRoot_ReturnsInvalidParameter()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                // The layout of the old device-level export: no tag table directories
+                files.Write("HmiTags.xlsx", "x");
+                var response = ParseToolResult<object>(_tools.hmi_unified_tags_import("TabletHMI", files.Root, dryRun: true));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
+            }
+        }
+
+        [Fact]
+        public void TagsImport_SingleTagWithSeveralTables_ReturnsInvalidParameter()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                files.Write(Path.Combine("TableA", "Tags.hmi.yml"), "x");
+                files.Write(Path.Combine("TableB", "Tags.hmi.yml"), "x");
+                var response = ParseToolResult<object>(_tools.hmi_unified_tags_import("TabletHMI", files.Root, tagName: "Speed", dryRun: true));
+                Assert.False(response.Success);
+                Assert.Equal(ErrorCodes.InvalidParameter, response.ErrorCode);
             }
         }
 

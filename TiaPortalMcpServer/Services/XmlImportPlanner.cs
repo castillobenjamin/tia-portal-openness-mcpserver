@@ -12,7 +12,8 @@ namespace TiaPortalMcpServer.Services
     {
         public XmlImportPlanItem(FileInfo file, string groupPath)
         {
-            File = file;
+            // Rebuilt from the full path: Openness imports reject a FileInfo whose original path is relative
+            File = new FileInfo(file.FullName);
             GroupPath = groupPath;
         }
 

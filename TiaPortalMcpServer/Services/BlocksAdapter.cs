@@ -637,7 +637,8 @@ namespace TiaPortalMcpServer.Services
 
             try
             {
-                block.Export(targetFile, options);
+                // Without the document info header: it holds a creation timestamp that changes on every export
+                block.Export(targetFile, options, DocumentInfoOptions.None);
                 return CreateXmlResult(name, groupPath, targetFile, DocumentOperationResult.StateSuccess, null);
             }
             catch (Exception ex)
@@ -676,7 +677,8 @@ namespace TiaPortalMcpServer.Services
 
             try
             {
-                type.Export(targetFile, options);
+                // Without the document info header: it holds a creation timestamp that changes on every export
+                type.Export(targetFile, options, DocumentInfoOptions.None);
                 return CreateXmlResult(name, groupPath, targetFile, DocumentOperationResult.StateSuccess, null);
             }
             catch (Exception ex)

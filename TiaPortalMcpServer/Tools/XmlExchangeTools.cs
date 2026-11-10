@@ -35,7 +35,9 @@ namespace TiaPortalMcpServer
 
         private const string PreservePathTagTableExportDescription = "If true, mirror the TIA project tree below exportPath: exportPath/PLC tags/<group path>/Name.xml. If false, write all files directly into exportPath";
         private const string PreservePathTagTableImportDescription = "If true, read the tree written by an export with preservePath: start in importPath/PLC tags when it exists (otherwise importPath), include subdirectories and import each one into the tag table group of the same path below groupName. If false, import only the files directly in importPath";
+        private const string IncludeDefaultsDescription = "Also write attributes that still have their default value (ExportOptions.WithDefaults). Off by default, so files only list values that were changed and match exports made without this option";
         private const string SaveNote = " Changes are made in the open project; call projects_save to persist them.";
+        private const string NotSavedMessage = "The project was not saved; call projects_save to keep this change";
 
         private readonly ILogger<XmlExchangeTools> _logger;
         private readonly TiaPortalSessionManager _sessionManager;
@@ -53,13 +55,13 @@ namespace TiaPortalMcpServer
 
         #region Blocks
 
-        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export a PLC block as a SimaticML (.xml) file named after the block. The block is searched in all block groups. Returns the state, the written file and any error. Prerequisites: Project must be open, device must have PLC software, block must exist, exportPath must exist. Use blocks_import_from_xml to reverse this operation.")]
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export a PLC block as a SimaticML (.xml) file named after the block. The block is searched in all block groups. Files are written without the document info header, so repeated exports of an unchanged object are identical. Returns the state, the written file and any error. Prerequisites: Project must be open, device must have PLC software, block must exist, exportPath must exist. Use blocks_import_from_xml to reverse this operation.")]
         public CallToolResult blocks_export_as_xml(
             [Description("Device name")] string deviceName,
             [Description("Block name")] string blockName,
             [Description("Directory to write the .xml file to")] string exportPath,
             [Description(PreservePathBlockExportDescription)] bool preservePath = false,
-            [Description("Include default values in the export")] bool includeDefaults = true,
+            [Description(IncludeDefaultsDescription)] bool includeDefaults = false,
             [Description("Include read-only values in the export")] bool includeReadOnly = false,
             [Description("Replace an existing file. If false, an existing file makes the export fail")] bool overwrite = false,
             [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
@@ -103,13 +105,13 @@ namespace TiaPortalMcpServer
             }
         }
 
-        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export PLC blocks from all block groups as SimaticML (.xml) files, optionally filtered by name/regex and optionally mirroring the TIA group structure as directories. Each block is exported independently; returns succeeded/failed counts and a per-block state, group path and file. Prerequisites: Project must be open, device must have PLC software, exportPath must exist.")]
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export PLC blocks from all block groups as SimaticML (.xml) files without the document info header (repeated exports of unchanged blocks are identical), optionally filtered by name/regex and optionally mirroring the TIA group structure as directories. Each block is exported independently; returns succeeded/failed counts and a per-block state, group path and file. Prerequisites: Project must be open, device must have PLC software, exportPath must exist.")]
         public CallToolResult blocks_export_all_as_xml(
             [Description("Device name")] string deviceName,
             [Description("Directory to write the .xml files to")] string exportPath,
             [Description("Case-insensitive name fragment or regular expression to filter blocks. Empty string exports all blocks.")] string regexName = "",
             [Description(PreservePathBlockExportDescription)] bool preservePath = false,
-            [Description("Include default values in the export")] bool includeDefaults = true,
+            [Description(IncludeDefaultsDescription)] bool includeDefaults = false,
             [Description("Include read-only values in the export")] bool includeReadOnly = false,
             [Description("Replace existing files. If false, an existing file makes that block's export fail")] bool overwrite = false,
             [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
@@ -297,13 +299,13 @@ namespace TiaPortalMcpServer
 
         #region PLC data types
 
-        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export a PLC data type (UDT) as a SimaticML (.xml) file named after the type. The type is searched in all type groups. Returns the state, the written file and any error. Prerequisites: Project must be open, device must have PLC software, type must exist, exportPath must exist. Use types_import_from_xml to reverse this operation.")]
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export a PLC data type (UDT) as a SimaticML (.xml) file named after the type. The type is searched in all type groups. Files are written without the document info header, so repeated exports of an unchanged object are identical. Returns the state, the written file and any error. Prerequisites: Project must be open, device must have PLC software, type must exist, exportPath must exist. Use types_import_from_xml to reverse this operation.")]
         public CallToolResult types_export_as_xml(
             [Description("Device name")] string deviceName,
             [Description("PLC data type name")] string typeName,
             [Description("Directory to write the .xml file to")] string exportPath,
             [Description(PreservePathTypeExportDescription)] bool preservePath = false,
-            [Description("Include default values in the export")] bool includeDefaults = true,
+            [Description(IncludeDefaultsDescription)] bool includeDefaults = false,
             [Description("Include read-only values in the export")] bool includeReadOnly = false,
             [Description("Replace an existing file. If false, an existing file makes the export fail")] bool overwrite = false,
             [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
@@ -347,13 +349,13 @@ namespace TiaPortalMcpServer
             }
         }
 
-        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export PLC data types (UDTs) from all type groups as SimaticML (.xml) files, optionally filtered by name/regex and optionally mirroring the TIA group structure as directories. Each type is exported independently; returns succeeded/failed counts and a per-type state, group path and file. Prerequisites: Project must be open, device must have PLC software, exportPath must exist.")]
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Export PLC data types (UDTs) from all type groups as SimaticML (.xml) files without the document info header (repeated exports of unchanged types are identical), optionally filtered by name/regex and optionally mirroring the TIA group structure as directories. Each type is exported independently; returns succeeded/failed counts and a per-type state, group path and file. Prerequisites: Project must be open, device must have PLC software, exportPath must exist.")]
         public CallToolResult types_export_all_as_xml(
             [Description("Device name")] string deviceName,
             [Description("Directory to write the .xml files to")] string exportPath,
             [Description("Case-insensitive name fragment or regular expression to filter types. Empty string exports all types.")] string regexName = "",
             [Description(PreservePathTypeExportDescription)] bool preservePath = false,
-            [Description("Include default values in the export")] bool includeDefaults = true,
+            [Description(IncludeDefaultsDescription)] bool includeDefaults = false,
             [Description("Include read-only values in the export")] bool includeReadOnly = false,
             [Description("Replace existing files. If false, an existing file makes that type's export fail")] bool overwrite = false,
             [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
@@ -550,7 +552,7 @@ namespace TiaPortalMcpServer
             [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "",
             [Description("Replace an existing file. If false, an existing file makes the export fail")] bool overwrite = false,
             [Description(PreservePathTagTableExportDescription)] bool preservePath = false,
-            [Description("Include default values in the export")] bool includeDefaults = true,
+            [Description(IncludeDefaultsDescription)] bool includeDefaults = false,
             [Description("Include read-only values in the export")] bool includeReadOnly = false)
         {
             _logger.LogInformation("tags_tagtable_export called with deviceName='{DeviceName}', tagTableName='{TagTableName}', exportPath='{ExportPath}', groupName='{GroupName}', unitName='{UnitName}', preservePath={PreservePath}",
@@ -631,7 +633,7 @@ namespace TiaPortalMcpServer
             [Description("Directory to write the .xml files to")] string exportPath,
             [Description("Case-insensitive name fragment or regular expression to filter tag tables. Empty string exports all tag tables.")] string regexName = "",
             [Description(PreservePathTagTableExportDescription)] bool preservePath = false,
-            [Description("Include default values in the export")] bool includeDefaults = true,
+            [Description(IncludeDefaultsDescription)] bool includeDefaults = false,
             [Description("Include read-only values in the export")] bool includeReadOnly = false,
             [Description("Replace existing files. If false, an existing file makes that table's export fail")] bool overwrite = false,
             [Description("Software Unit name. Leave empty for the device's main PLC software.")] string unitName = "")
@@ -931,6 +933,10 @@ namespace TiaPortalMcpServer
             var imported = _blocksAdapter.ImportTagTablesFromXmlFiles(pending, importOptions);
             for (var i = 0; i < imported.Count; i++)
             {
+                if (!imported[i].IsFailure)
+                {
+                    imported[i].Messages.Add(NotSavedMessage);
+                }
                 results[pendingIndexes[i]] = imported[i];
             }
             return results;

@@ -25,6 +25,7 @@ namespace TiaPortalMcpServer.Services
     {
         private readonly ILogger<TiaPortalService> _logger;
         private TiaPortal? _tiaPortal;
+        private bool _ownsPortal;
         private readonly object _lock = new object();
         private bool _disposed = false;
 
@@ -37,25 +38,26 @@ namespace TiaPortalMcpServer.Services
 
         public TiaPortal? CurrentPortal => _tiaPortal;
 
+        /// <summary>
+        /// Returns the TIA Portal this server works with. Attaches to a running TIA Portal, preferring one with a project
+        /// open, and starts one without user interface only when none is running. Use this only where a TIA Portal is
+        /// needed without a project (opening or creating a project, the hardware catalog); <see cref="FindOpenProject"/>
+        /// never starts one.
+        /// </summary>
         public TiaPortal? GetOrCreatePortalInstance()
         {
             lock (_lock)
             {
+                DropPortalIfDead();
                 if (_tiaPortal == null)
                 {
-                    _logger.LogInformation("Creating new TIA Portal instance...");
                     try
                     {
-                        var processes = TiaPortal.GetProcesses();
-                        TiaPortalProcess firstProcess;
-                        if (processes.Any())
+                        if (!TryAttachToRunningPortal())
                         {
-                            firstProcess = processes.First();
-                            _tiaPortal = firstProcess.Attach();
-                        }
-                        else
-                        {
+                            _logger.LogInformation("No TIA Portal is running; starting one without user interface");
                             _tiaPortal = new TiaPortal(TiaPortalMode.WithoutUserInterface);
+                            _ownsPortal = true;
                         }
                     }
                     catch (COMException comEx)
@@ -233,14 +235,149 @@ namespace TiaPortalMcpServer.Services
             }
         }
 
-        public Project? GetCurrentProject()
+        /// <summary>
+        /// Returns the project open in the attached TIA Portal. When there is none, looks for another running TIA Portal
+        /// with a project open and attaches to it instead: an instance this server started is closed (it has no project),
+        /// an attached one is only detached. Never starts TIA Portal; returns null when no running instance has a project.
+        /// </summary>
+        public Project? FindOpenProject()
         {
-            if (_tiaPortal != null)
+            lock (_lock)
             {
-                var projects = _tiaPortal.Projects;
-                return projects.FirstOrDefault();
+                DropPortalIfDead();
+                if (_tiaPortal == null)
+                {
+                    TryAttachToRunningPortal();
+                }
+
+                var project = FirstProject(_tiaPortal);
+                if (project != null)
+                {
+                    return project;
+                }
+
+                var currentProcessId = CurrentProcessId();
+                foreach (var process in TiaPortal.GetProcesses())
+                {
+                    if (process.Id == currentProcessId || ProjectPathOf(process) == null)
+                    {
+                        continue;
+                    }
+
+                    _logger.LogInformation("Attaching to TIA Portal process {ProcessId}, which has project '{ProjectPath}' open", process.Id, ProjectPathOf(process));
+                    ReleasePortal();
+                    _tiaPortal = process.Attach();
+                    _ownsPortal = false;
+                    return FirstProject(_tiaPortal);
+                }
+
+                return null;
             }
-            return null;
+        }
+
+        /// <summary>
+        /// Attaches to a running TIA Portal, preferring one with a project open. Returns false when none is running.
+        /// </summary>
+        private bool TryAttachToRunningPortal()
+        {
+            TiaPortalProcess? chosen = null;
+            foreach (var process in TiaPortal.GetProcesses())
+            {
+                if (ProjectPathOf(process) != null)
+                {
+                    chosen = process;
+                    break;
+                }
+                chosen = chosen ?? process;
+            }
+
+            if (chosen == null)
+            {
+                return false;
+            }
+
+            _logger.LogInformation("Attaching to TIA Portal process {ProcessId} (project: '{ProjectPath}')", chosen.Id, ProjectPathOf(chosen)?.FullName ?? "none");
+            _tiaPortal = chosen.Attach();
+            _ownsPortal = false;
+            return true;
+        }
+
+        /// <summary>
+        /// Forgets a TIA Portal that no longer answers, for example after it crashed or was closed.
+        /// </summary>
+        private void DropPortalIfDead()
+        {
+            if (_tiaPortal == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _ = _tiaPortal.Projects.Count;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "The TIA Portal this server was attached to no longer answers; looking for another one");
+                ReleasePortal();
+            }
+        }
+
+        /// <summary>
+        /// Closes an instance this server started, or detaches from an attached one.
+        /// </summary>
+        private void ReleasePortal()
+        {
+            if (_tiaPortal == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _logger.LogInformation(_ownsPortal
+                    ? "Closing the TIA Portal instance this server started"
+                    : "Detaching from the TIA Portal instance");
+                _tiaPortal.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error releasing the TIA Portal instance");
+            }
+            finally
+            {
+                _tiaPortal = null;
+                _ownsPortal = false;
+            }
+        }
+
+        private int CurrentProcessId()
+        {
+            try
+            {
+                return _tiaPortal?.GetCurrentProcess().Id ?? -1;
+            }
+            catch (Exception)
+            {
+                return -1;
+            }
+        }
+
+        private static Project? FirstProject(TiaPortal? portal)
+        {
+            return portal == null ? null : portal.Projects.FirstOrDefault();
+        }
+
+        private static FileInfo? ProjectPathOf(TiaPortalProcess process)
+        {
+            try
+            {
+                return process.ProjectPath;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         public PlcSoftware? GetPlcSoftware(Device device)

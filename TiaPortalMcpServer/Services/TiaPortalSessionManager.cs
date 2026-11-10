@@ -25,25 +25,17 @@ namespace TiaPortalMcpServer.Services
             _portalService = portalService;
             _logger = logger;
 
-            _portalService.GetOrCreatePortalInstance();
-            var currentProject = _portalService.GetCurrentProject();
-            if (currentProject != null)
+            // Attach to a running TIA Portal and pick up its project, but do not start one: a TIA Portal started here
+            // before the user's own would hold no project. projects_open and projects_create start one when needed.
+            lock (_lock)
             {
-                try
-                {
-                    _ = currentProject.Name;
-                    _currentProject = currentProject;
-                    _currentProjectPath = currentProject.Path.ToString();
-                }
-                catch (Exception)
-                {
-                    _currentProject = null;
-                }
+                RefreshProject();
             }
         }
 
         /// <summary>
-        /// Gets the currently open project, or null if no project is open
+        /// Gets the currently open project, or null if no project is open. When there is none (or the TIA Portal holding
+        /// it is gone), looks again, so a project opened in the TIA Portal user interface after the server started is found.
         /// </summary>
         public Project? CurrentProject
         {
@@ -51,9 +43,47 @@ namespace TiaPortalMcpServer.Services
             {
                 lock (_lock)
                 {
-                    return _currentProject;
+                    return RefreshProject();
                 }
             }
+        }
+
+        /// <summary>
+        /// Checks the cached project still answers and otherwise asks TIA Portal for the open project. Call under _lock.
+        /// </summary>
+        private Project? RefreshProject()
+        {
+            if (_currentProject != null)
+            {
+                try
+                {
+                    _ = _currentProject.Name;
+                    return _currentProject;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "The open project no longer answers; looking for it again");
+                    _currentProject = null;
+                    _currentProjectPath = null;
+                }
+            }
+
+            try
+            {
+                var project = _portalService.FindOpenProject();
+                if (project != null)
+                {
+                    _currentProject = project;
+                    _currentProjectPath = project.Path.FullName;
+                    _logger.LogInformation("Using project '{ProjectName}' at {ProjectPath}", project.Name, _currentProjectPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not look for an open TIA Portal project");
+            }
+
+            return _currentProject;
         }
 
         /// <summary>
@@ -82,7 +112,7 @@ namespace TiaPortalMcpServer.Services
         {
             lock (_lock)
             {
-                if (_currentProject != null)
+                if (RefreshProject() != null)
                 {
                     throw new InvalidOperationException(
                         $"A project is already open: {_currentProjectPath}. Close it first."
@@ -117,7 +147,7 @@ namespace TiaPortalMcpServer.Services
         {
             lock (_lock)
             {
-                if (_currentProject != null)
+                if (RefreshProject() != null)
                 {
                     throw new InvalidOperationException(
                         $"A project is already open: {_currentProjectPath}. Close it first."
@@ -152,13 +182,14 @@ namespace TiaPortalMcpServer.Services
         {
             lock (_lock)
             {
-                if (_currentProject == null)
+                var project = RefreshProject();
+                if (project == null)
                 {
                     throw new InvalidOperationException("No project is currently open");
                 }
 
-                _logger.LogInformation("Saving current project: {ProjectName}", _currentProject.Name);
-                _currentProject.Save();
+                _logger.LogInformation("Saving current project: {ProjectName}", project.Name);
+                project.Save();
                 _logger.LogInformation("Project saved successfully");
             }
         }
@@ -171,14 +202,15 @@ namespace TiaPortalMcpServer.Services
         {
             lock (_lock)
             {
-                if (_currentProject == null)
+                var project = RefreshProject();
+                if (project == null)
                 {
                     throw new InvalidOperationException("No project is currently open");
                 }
 
-                _logger.LogInformation("Saving project {ProjectName} as {TargetDirectory}", _currentProject.Name, targetDirectory);
-                _currentProject.SaveAs(new DirectoryInfo(targetDirectory));
-                _currentProjectPath = _currentProject.Path.FullName;
+                _logger.LogInformation("Saving project {ProjectName} as {TargetDirectory}", project.Name, targetDirectory);
+                project.SaveAs(new DirectoryInfo(targetDirectory));
+                _currentProjectPath = project.Path.FullName;
                 _logger.LogInformation("Project saved as {ProjectPath}", _currentProjectPath);
                 return _currentProjectPath;
             }
@@ -217,13 +249,14 @@ namespace TiaPortalMcpServer.Services
         {
             lock (_lock)
             {
-                if (_currentProject == null)
+                var project = RefreshProject();
+                if (project == null)
                 {
                     throw new InvalidOperationException("No project is currently open");
                 }
 
-                _logger.LogInformation("Archiving current project: {ProjectName}", _currentProject.Name);
-                _portalService.ArchiveProject(_currentProject, targetDirectory, targetName, mode);
+                _logger.LogInformation("Archiving current project: {ProjectName}", project.Name);
+                _portalService.ArchiveProject(project, targetDirectory, targetName, mode);
                 _logger.LogInformation("Project archived successfully");
             }
         }
@@ -235,7 +268,7 @@ namespace TiaPortalMcpServer.Services
         {
             lock (_lock)
             {
-                if (_currentProject != null)
+                if (RefreshProject() != null)
                 {
                     throw new InvalidOperationException(
                         $"A project is already open: {_currentProjectPath}. Close it first."
@@ -261,7 +294,7 @@ namespace TiaPortalMcpServer.Services
         {
             lock (_lock)
             {
-                return _currentProject != null;
+                return RefreshProject() != null;
             }
         }
 
@@ -272,6 +305,7 @@ namespace TiaPortalMcpServer.Services
         {
             lock (_lock)
             {
+                RefreshProject();
                 return (
                     _currentProject != null,
                     _currentProject?.Name,

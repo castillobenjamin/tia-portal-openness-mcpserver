@@ -38,7 +38,8 @@ All active tools are declared in `TiaPortalMcpServer/Tools/`.
 - Transport: MCP over `stdio`.
 - Host process: .NET console app using `Microsoft.Extensions.Hosting`.
 - Tool discovery: attribute-based (`[McpServerToolType]`, `[McpServerTool]`).
-- Logging: Serilog to stderr and rolling file logs (`TiaPortalMcpServer/logs/`).
+- Logging: Serilog to stderr and rolling file logs in `logs\` next to the exe (for example `TiaPortalMcpServer\bin\Debug\net48\logs\`).
+- TIA Portal: the server attaches to a running TIA Portal, preferring one with a project open, and looks again whenever it has no project, so a project opened in the TIA Portal user interface after the server started is found. It starts a TIA Portal without user interface only for `projects_open`, `projects_create` and the hardware catalog when none is running.
 
 ## Requirements
 

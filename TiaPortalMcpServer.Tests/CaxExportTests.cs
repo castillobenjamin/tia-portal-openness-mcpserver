@@ -238,8 +238,43 @@ namespace TiaPortalMcpServer.Tests
             CaxLog.CollectProblems(SampleMessages(), result);
 
             Assert.Equal(new[] { "Device PLC_1 > Module DI 16 was not exported" }, result.Errors);
-            Assert.Equal(new[] { "Device PLC_1", "Subnet PN/IE_1 has no address" }, result.Warnings);
+            // "Device PLC_1" only carries the state of its error child up, so it is not a warning of its own
+            Assert.Equal(new[] { "Subnet PN/IE_1 has no address" }, result.Warnings);
             Assert.False(result.MessagesTruncated);
+        }
+
+        [Fact]
+        public void CaxLogCollectProblems_ReportsOnlyWhereTheErrorStarts()
+        {
+            // Shape of the whole-project export of M2: the error state is passed up to every enclosing message
+            var messages = new List<CaxMessage>
+            {
+                new CaxMessage
+                {
+                    State = "Error",
+                    Message = "The export is being processed",
+                    Children =
+                    {
+                        new CaxMessage
+                        {
+                            State = "Error",
+                            Message = "TabletHMI is being exported.",
+                            Children =
+                            {
+                                new CaxMessage { State = "Error", Message = "Unable to process device item 'Unified_PC_RT_1920x1080'." },
+                                new CaxMessage { State = "Warning", Message = "Address not set." }
+                            }
+                        },
+                        new CaxMessage { State = "Success", Message = "PLC_1 is being exported." }
+                    }
+                }
+            };
+            var result = new CaxExportResult();
+
+            CaxLog.CollectProblems(messages, result);
+
+            Assert.Equal(new[] { "The export is being processed > TabletHMI is being exported. > Unable to process device item 'Unified_PC_RT_1920x1080'." }, result.Errors);
+            Assert.Equal(new[] { "The export is being processed > TabletHMI is being exported. > Address not set." }, result.Warnings);
         }
 
         [Fact]

@@ -345,6 +345,23 @@ namespace TiaPortalMcpServer.Services
         }
 
         /// <summary>
+        /// Owner check for <see cref="HmiSnapshotSerializer"/>: an engineering object or composition belongs to
+        /// <paramref name="owner"/> when its Parent is the owner. Anything else in a property (another screen, a tag, a
+        /// library type) is a reference the snapshot must not read into. Plain .NET values always belong to their owner.
+        /// </summary>
+        public static bool IsSnapshotChild(object value, object owner)
+        {
+            var instance = value as IEngineeringInstance;
+            if (instance == null)
+            {
+                return true;
+            }
+
+            var parent = instance.Parent;
+            return parent != null && (ReferenceEquals(parent, owner) || parent.Equals(owner));
+        }
+
+        /// <summary>
         /// Converts the Openness values <see cref="HmiSnapshotSerializer"/> does not know: a multilingual text becomes
         /// { "&lt;culture&gt;": "&lt;text&gt;" } with one entry per project language. Returns null for every other value.
         /// </summary>

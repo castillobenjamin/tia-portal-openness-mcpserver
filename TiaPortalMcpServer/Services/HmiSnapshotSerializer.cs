@@ -31,13 +31,17 @@ namespace TiaPortalMcpServer.Services
 
     /// <summary>
     /// Turns an object graph (a WinCC Unified screen with its items, parts, dynamizations and event handlers) into a
-    /// deterministic JSON snapshot by reading every public property through reflection. Script code goes to sidecar files.
+    /// deterministic JSON snapshot by reading the public properties of the objects the graph owns through reflection.
+    /// Script code goes to sidecar files.
     /// </summary>
     /// <remarks>
     /// Works on any object graph and references no Siemens types, so it can be tested with plain objects. Values the graph
     /// holds in Openness-specific types (multilingual texts) are converted by the converter passed in.
     /// <list type="bullet">
     /// <item>Every object gets an "@type" key with its runtime type name; "Parent" properties are skipped.</item>
+    /// <item>An object or collection that the owner check passed in says does not belong to the object holding it (a
+    /// reference to another engineering object, such as a faceplate's library type) is not read: it is written as
+    /// { "@type", "@ref": "&lt;its Name&gt;" }. ScreenItems and the keyed collections below are always read.</item>
     /// <item>Colors are written as #AARRGGBB, enums by member name, dates in ISO 8601 form.</item>
     /// <item>ScreenItems stay in their order (the z-order); Dynamizations, EventHandlers, PropertyEventHandlers,
     /// Interface and DriverProperties become objects keyed by property or event; other collections stay arrays; empty collections are left out.</item>
@@ -91,6 +95,8 @@ namespace TiaPortalMcpServer.Services
         private static readonly ConcurrentDictionary<Type, PropertyInfo[]> PropertyCache = new ConcurrentDictionary<Type, PropertyInfo[]>();
 
         private readonly Func<object, JToken?>? _convert;
+        private readonly Func<object, object, bool>? _isOwnedBy;
+        private readonly Action<string>? _trace;
         private readonly string _sidecarFolder;
         private readonly List<SnapshotSidecar> _sidecars = new List<SnapshotSidecar>();
         private readonly HashSet<string> _sidecarNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -99,10 +105,16 @@ namespace TiaPortalMcpServer.Services
 
         /// <param name="sidecarFolder">Folder for script files, relative to the snapshot's directory, such as "Main.scripts".</param>
         /// <param name="convert">Converts values the serializer does not know; returns null to let the serializer handle them.</param>
-        public HmiSnapshotSerializer(string sidecarFolder, Func<object, JToken?>? convert = null)
+        /// <param name="isOwnedBy">Called as (value, owner) for each object or collection found in a property of owner;
+        /// false writes the value as a reference instead of reading it. Null reads everything.</param>
+        /// <param name="trace">Called with the path of each root object, collection entry and screen item before it is read,
+        /// so a log names the object being read when reading fails badly.</param>
+        public HmiSnapshotSerializer(string sidecarFolder, Func<object, JToken?>? convert = null, Func<object, object, bool>? isOwnedBy = null, Action<string>? trace = null)
         {
             _sidecarFolder = sidecarFolder;
             _convert = convert;
+            _isOwnedBy = isOwnedBy;
+            _trace = trace;
         }
 
         /// <summary>
@@ -123,6 +135,7 @@ namespace TiaPortalMcpServer.Services
         public JObject Serialize(object root, string rootName, string format = Format)
         {
             _rootName = rootName;
+            _trace?.Invoke(rootName);
             var snapshot = SerializeObject(root, new[] { ExchangePaths.ToFileName(rootName) }, false, 0);
             snapshot["@format"] = format;
             return snapshot;
@@ -143,6 +156,7 @@ namespace TiaPortalMcpServer.Services
                 if (entry != null)
                 {
                     var key = UniqueKey(items, ReadName(entry) ?? "#" + index.ToString(CultureInfo.InvariantCulture));
+                    _trace?.Invoke(collectionName + "/" + key);
                     items[key] = SerializeObject(entry, new[] { ExchangePaths.ToFileName(key) }, false, 0);
                 }
 
@@ -214,7 +228,7 @@ namespace TiaPortalMcpServer.Services
                         continue;
                     }
 
-                    var token = SerializeValue(propertyValue, property.Name, path, inDynamization, depth + 1);
+                    var token = SerializeValue(propertyValue, property.Name, path, inDynamization, depth + 1, value);
                     if (token != null)
                     {
                         result[property.Name] = token;
@@ -239,7 +253,7 @@ namespace TiaPortalMcpServer.Services
         /// <summary>
         /// The JSON for a property value, or null to leave the property out (empty collections).
         /// </summary>
-        private JToken? SerializeValue(object? value, string name, IReadOnlyList<string> path, bool inDynamization, int depth)
+        private JToken? SerializeValue(object? value, string name, IReadOnlyList<string> path, bool inDynamization, int depth, object owner)
         {
             if (value == null)
             {
@@ -272,7 +286,12 @@ namespace TiaPortalMcpServer.Services
                 case TimeSpan span:
                     return new JValue(span.ToString("c", CultureInfo.InvariantCulture));
                 case IEnumerable collection:
-                    return SerializeCollection(collection, name, path, inDynamization, depth);
+                    if (!IsChildCollection(name) && !IsOwned(collection, owner))
+                    {
+                        return Reference(collection);
+                    }
+
+                    return SerializeCollection(collection, name, path, inDynamization, depth, owner);
             }
 
             var type = value.GetType();
@@ -286,10 +305,50 @@ namespace TiaPortalMcpServer.Services
                 return new JValue(Convert.ToString(value, CultureInfo.InvariantCulture));
             }
 
+            if (!IsOwned(value, owner))
+            {
+                return Reference(value);
+            }
+
             return SerializeObject(value, name == ScriptProperty ? path : Append(path, name), inDynamization, depth);
         }
 
-        private JToken? SerializeCollection(IEnumerable collection, string name, IReadOnlyList<string> path, bool inDynamization, int depth)
+        private static bool IsChildCollection(string name)
+        {
+            return name == ScreenItemsProperty || KeyedCollections.ContainsKey(name);
+        }
+
+        /// <summary>
+        /// Whether <paramref name="value"/> belongs to <paramref name="owner"/>; an owner check that throws counts as "no".
+        /// </summary>
+        private bool IsOwned(object value, object owner)
+        {
+            if (_isOwnedBy == null)
+            {
+                return true;
+            }
+
+            try
+            {
+                return _isOwnedBy(value, owner);
+            }
+            catch (Exception ex) when (IsReadFailure(ex))
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// A reference to an object the snapshot does not read: its type and, when it has one, its name.
+        /// </summary>
+        private static JObject Reference(object value)
+        {
+            var reference = new JObject { ["@type"] = value.GetType().Name };
+            reference["@ref"] = value is IEnumerable ? "(collection)" : ReadName(value) ?? "(unnamed)";
+            return reference;
+        }
+
+        private JToken? SerializeCollection(IEnumerable collection, string name, IReadOnlyList<string> path, bool inDynamization, int depth, object owner)
         {
             var elements = collection.Cast<object?>().ToList();
             if (elements.Count == 0)
@@ -303,9 +362,15 @@ namespace TiaPortalMcpServer.Services
                 for (var i = 0; i < elements.Count; i++)
                 {
                     var element = elements[i];
-                    items.Add(element == null
-                        ? JValue.CreateNull()
-                        : SerializeObject(element, new[] { ExchangePaths.ToFileName(ReadName(element) ?? "#" + i) }, false, depth));
+                    if (element == null)
+                    {
+                        items.Add(JValue.CreateNull());
+                        continue;
+                    }
+
+                    var itemName = ReadName(element) ?? "#" + i;
+                    _trace?.Invoke(_rootName + "/" + itemName);
+                    items.Add(SerializeObject(element, new[] { ExchangePaths.ToFileName(itemName) }, false, depth));
                 }
 
                 return items;
@@ -334,12 +399,18 @@ namespace TiaPortalMcpServer.Services
                 var element = elements[i];
                 if (element != null && IsComplex(element))
                 {
+                    if (!IsOwned(element, owner))
+                    {
+                        array.Add(Reference(element));
+                        continue;
+                    }
+
                     var segment = ReadName(element) ?? "#" + i;
                     array.Add(SerializeObject(element, Append(Append(path, name), segment), inDynamization, depth));
                 }
                 else
                 {
-                    array.Add(SerializeValue(element, name, path, inDynamization, depth) ?? JValue.CreateNull());
+                    array.Add(SerializeValue(element, name, path, inDynamization, depth, owner) ?? JValue.CreateNull());
                 }
             }
 

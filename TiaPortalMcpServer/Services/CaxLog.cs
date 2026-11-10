@@ -31,11 +31,31 @@ namespace TiaPortalMcpServer.Services
 
         /// <summary>
         /// Adds the error and warning messages, with the messages they are nested in as a " > " separated prefix,
-        /// to <paramref name="result"/>, up to <see cref="MaxReportedMessages"/> each.
+        /// to <paramref name="result"/>, up to <see cref="MaxReportedMessages"/> each. TIA Portal passes the state of a
+        /// message up to the messages it is nested in ("The export is being processed" > "TabletHMI is being exported."
+        /// > the actual error), so a message is only reported where the problem starts: when none of its children has
+        /// the same or a more severe state. The parents stay in the prefix.
         /// </summary>
         public static void CollectProblems(IEnumerable<CaxMessage> messages, CaxExportResult result)
         {
             CollectProblems(messages, string.Empty, result);
+        }
+
+        private static int Severity(string state)
+        {
+            return state == StateError ? 2 : state == StateWarning ? 1 : 0;
+        }
+
+        private static bool ChildIsAsSevere(CaxMessage message, int severity)
+        {
+            foreach (var child in message.Children)
+            {
+                if (Severity(child.State) >= severity)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static void CollectProblems(IEnumerable<CaxMessage> messages, string prefix, CaxExportResult result)
@@ -43,9 +63,10 @@ namespace TiaPortalMcpServer.Services
             foreach (var message in messages)
             {
                 var text = prefix.Length == 0 ? message.Message : prefix + " > " + message.Message;
-                var target = message.State == StateError ? result.Errors
-                    : message.State == StateWarning ? result.Warnings
-                    : null;
+                var severity = Severity(message.State);
+                var target = severity == 0 || ChildIsAsSevere(message, severity) ? null
+                    : severity == 2 ? result.Errors
+                    : result.Warnings;
                 if (target != null)
                 {
                     if (target.Count < MaxReportedMessages)

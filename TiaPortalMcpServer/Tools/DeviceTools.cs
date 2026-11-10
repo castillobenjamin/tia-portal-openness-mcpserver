@@ -1391,7 +1391,7 @@ namespace TiaPortalMcpServer
 
             try
             {
-                var portal = _sessionManager.PortalService.CurrentPortal;
+                var portal = _sessionManager.PortalService.GetOrCreatePortalInstance();
                 if (portal == null)
                 {
                     throw new InvalidOperationException("TIA Portal instance not available");
