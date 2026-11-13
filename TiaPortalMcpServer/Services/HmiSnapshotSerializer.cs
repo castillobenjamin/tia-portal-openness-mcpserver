@@ -612,7 +612,7 @@ namespace TiaPortalMcpServer.Services
         /// Portal is gone (Openness NonRecoverableException, disposed objects) end the snapshot instead, as does such a
         /// failure already wrapped in <see cref="HmiSnapshotReadException"/> by a nested read.
         /// </summary>
-        private static bool IsReadFailure(Exception ex)
+        internal static bool IsReadFailure(Exception ex)
         {
             if (ex is HmiSnapshotReadException)
             {
