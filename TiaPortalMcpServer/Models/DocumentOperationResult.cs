@@ -43,6 +43,12 @@ namespace TiaPortalMcpServer.Models
         public IList<PlcTypeInfo>? Types { get; set; }
 
         /// <summary>
+        /// Names of the PLC tag tables an import created or replaced.
+        /// </summary>
+        [JsonProperty("tagTables", NullValueHandling = NullValueHandling.Ignore)]
+        public IList<string>? TagTables { get; set; }
+
+        /// <summary>
         /// Messages logged by TIA Portal during the operation, plus validation notes and errors.
         /// </summary>
         [JsonProperty("messages")]

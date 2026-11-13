@@ -48,7 +48,7 @@ namespace TiaPortalMcpServer
                     );
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                var device = _sessionManager.PortalService.FindDevice(project, deviceName);
                 if (device == null)
                 {
                     return McpToolResults.From(
@@ -122,7 +122,7 @@ namespace TiaPortalMcpServer
                     );
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                var device = _sessionManager.PortalService.FindDevice(project, deviceName);
                 if (device == null)
                 {
                     return McpToolResults.From(
@@ -245,7 +245,7 @@ namespace TiaPortalMcpServer
                     );
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                var device = _sessionManager.PortalService.FindDevice(project, deviceName);
                 if (device == null)
                 {
                     return McpToolResults.From(
@@ -327,7 +327,7 @@ namespace TiaPortalMcpServer
                     );
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                var device = _sessionManager.PortalService.FindDevice(project, deviceName);
                 if (device == null)
                 {
                     return McpToolResults.From(
@@ -420,7 +420,7 @@ namespace TiaPortalMcpServer
                     );
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                var device = _sessionManager.PortalService.FindDevice(project, deviceName);
                 if (device == null)
                 {
                     return McpToolResults.From(
@@ -511,7 +511,7 @@ namespace TiaPortalMcpServer
                     );
                 }
 
-                var device = project.Devices.FirstOrDefault(d => d.Name == deviceName);
+                var device = _sessionManager.PortalService.FindDevice(project, deviceName);
                 if (device == null)
                 {
                     return McpToolResults.From(

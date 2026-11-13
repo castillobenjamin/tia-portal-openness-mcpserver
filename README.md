@@ -18,15 +18,17 @@ The server provides tool groups for:
 - PLC software and block operations (`software_add_block`, `blocks_list`, `software_get_block_hierarchy`, `software_units_list`)
 - PLC software discovery (`software_paths_list` for every PLC and Software Unit in the project, `software_tree_get` for the project tree of one of them)
 - Software Units: block, tag and software tools take an optional `unitName` to work inside a Software Unit instead of the device's main PLC software; `software_units_list` lists the available units
-- tag and tag-table management (`tags_create`, `tags_list`, `tags_tagtable_create`, `tags_tagtable_list`, `tags_tagtable_get`, `tags_tagtable_delete`, `tags_tagtable_export`, `tags_tagtable_open_editor`, `tags_group_create`, `tags_group_list`, `tags_group_find`, `tags_group_delete`, `tags_group_system_get`, `tags_constants_user_list`, `tags_constants_system_list`)
+- tag and tag-table management (`tags_create`, `tags_list`, `tags_tagtable_create`, `tags_tagtable_list`, `tags_tagtable_get`, `tags_tagtable_delete`, `tags_tagtable_open_editor`, `tags_group_create`, `tags_group_list`, `tags_group_find`, `tags_group_delete`, `tags_group_system_get`, `tags_constants_user_list`, `tags_constants_system_list`)
 - advanced block operations (external sources, ProDiag, UDTs, types, editor helpers — 19 tools in `BlocksTools`)
 - SIMATIC SD document exchange of blocks (`blocks_export_as_documents`, `blocks_export_all_as_documents`, `blocks_import_from_documents`, `blocks_import_all_from_documents`)
-- SimaticML XML exchange of blocks and PLC data types (`blocks_export_as_xml`, `blocks_export_all_as_xml`, `blocks_import_from_xml`, `blocks_import_all_from_xml`, `types_export_as_xml`, `types_export_all_as_xml`, `types_import_from_xml`, `types_import_all_from_xml`)
-- `preservePath` on the exchange tools mirrors the TIA project tree (`Program blocks/...`, `PLC data types/...`) on export and reads it back on import
+- SimaticML XML exchange of blocks, PLC data types and PLC tag tables (`blocks_export_as_xml`, `blocks_export_all_as_xml`, `blocks_import_from_xml`, `blocks_import_all_from_xml`, `types_export_as_xml`, `types_export_all_as_xml`, `types_import_from_xml`, `types_import_all_from_xml`, `tags_tagtable_export`, `tags_tagtable_export_all`, `tags_tagtable_import`, `tags_tagtable_import_all`)
+- `preservePath` on the exchange tools mirrors the TIA project tree (`Program blocks/...`, `PLC data types/...`, `PLC tags/...`) on export and reads it back on import
+- hardware configuration export as AutomationML (`cax_export`, with an optional `normalize` for byte-identical repeat exports)
+- hardware parameter snapshots for review in git (`hardware_snapshot`): F-parameters, channel settings, PROFINET timing and the other attributes the AML leaves out
 - compilation with each error and warning reported with its object path (`compilation_project`, `compilation_software` incl. single Software Units, `compilation_block`, `compilation_hmi`)
 - file import and validation (`files_read_csv`, `files_read_excel`, `files_list_sheets`, `files_validate_format`, `files_get_info`)
 - HMI targets (`hmi_targets_list`, `hmi_targets_get`, `hmi_targets_validate`)
-- WinCC Unified HMI: screens, screen items, HMI tags, connections and text lists (17 `hmi_unified_*` tools)
+- WinCC Unified HMI: screens, screen items, HMI tags (incl. export/import), connections, text lists, graphic lists, system text lists and script modules (all with export/import), plus JSON review snapshots of screens, alarms, logs, connections and runtime settings (30 `hmi_unified_*` tools)
 - sampling/LLM-assisted operations (`sampling_generate_code`, `sampling_summarize_project`, `sampling_get_suggestions`)
 - elicitation and utility helpers (`utilities_elicit_user_input`, `utilities_get_project_info`, `utilities_list_libraries`)
 
@@ -37,7 +39,8 @@ All active tools are declared in `TiaPortalMcpServer/Tools/`.
 - Transport: MCP over `stdio`.
 - Host process: .NET console app using `Microsoft.Extensions.Hosting`.
 - Tool discovery: attribute-based (`[McpServerToolType]`, `[McpServerTool]`).
-- Logging: Serilog to stderr and rolling file logs (`TiaPortalMcpServer/logs/`).
+- Logging: Serilog to stderr and rolling file logs in `logs\` next to the exe (for example `TiaPortalMcpServer\bin\Debug\net48\logs\`).
+- TIA Portal: the server attaches to a running TIA Portal, preferring one with a project open, and looks again whenever it has no project, so a project opened in the TIA Portal user interface after the server started is found. It starts a TIA Portal without user interface only for `projects_open`, `projects_create` and the hardware catalog when none is running.
 
 ## Requirements
 

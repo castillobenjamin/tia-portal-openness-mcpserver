@@ -31,6 +31,12 @@ namespace TiaPortalMcpServer.Models
 
         [JsonProperty("textListCount")]
         public int TextListCount { get; set; }
+
+        [JsonProperty("graphicListCount")]
+        public int GraphicListCount { get; set; }
+
+        [JsonProperty("systemTextListCount")]
+        public int SystemTextListCount { get; set; }
     }
 
     public class HmiScreenInfo
@@ -168,6 +174,64 @@ namespace TiaPortalMcpServer.Models
     /// <summary>
     /// Result of a WinCC Unified write operation (create, delete, set attributes, import, export).
     /// </summary>
+    public class HmiScreenSnapshotResult : HmiSnapshotResult
+    {
+        [JsonProperty("screenCount")]
+        public int ScreenCount { get; set; }
+    }
+
+    public class HmiCollectionSnapshotResult : HmiSnapshotResult
+    {
+        /// <summary>
+        /// Number of entries written per collection, such as { "DiscreteAlarms": 120 }. Collections the device does not
+        /// support are missing and listed under unreadable.
+        /// </summary>
+        [JsonProperty("counts")]
+        public IDictionary<string, int> Counts { get; set; } = new SortedDictionary<string, int>(System.StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// Result of the hmi_unified_*_snapshot tools.
+    /// </summary>
+    public abstract class HmiSnapshotResult
+    {
+        [JsonProperty("deviceName")]
+        public string DeviceName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// The directory below the export path that holds the snapshots ("Screens", "Alarms" or "Settings").
+        /// </summary>
+        [JsonProperty("snapshotDirectory")]
+        public string SnapshotDirectory { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Files rewritten because their content changed (or they are new).
+        /// </summary>
+        [JsonProperty("writtenCount")]
+        public int WrittenCount { get; set; }
+
+        /// <summary>
+        /// Files that already held exactly the snapshot content and were left untouched.
+        /// </summary>
+        [JsonProperty("unchangedCount")]
+        public int UnchangedCount { get; set; }
+
+        /// <summary>
+        /// Every snapshot and script file of this run, sorted; files not listed here are left over from earlier runs.
+        /// </summary>
+        [JsonProperty("files")]
+        public IList<string> Files { get; set; } = new List<string>();
+
+        [JsonProperty("unreadableCount")]
+        public int UnreadableCount { get; set; }
+
+        /// <summary>
+        /// The first properties that could not be read ("Main: Button_1.Font.Size: message"); also listed per object under "@unreadable".
+        /// </summary>
+        [JsonProperty("unreadable", NullValueHandling = NullValueHandling.Ignore)]
+        public IList<string>? Unreadable { get; set; }
+    }
+
     public class HmiOperationResult
     {
         [JsonProperty("deviceName")]
@@ -187,5 +251,11 @@ namespace TiaPortalMcpServer.Models
 
         [JsonProperty("files", NullValueHandling = NullValueHandling.Ignore)]
         public IList<string>? Files { get; set; }
+
+        /// <summary>
+        /// Things to check after the operation, such as texts a known TIA Portal import bug may change.
+        /// </summary>
+        [JsonProperty("warnings", NullValueHandling = NullValueHandling.Ignore)]
+        public IList<string>? Warnings { get; set; }
     }
 }

@@ -117,6 +117,34 @@ namespace TiaPortalMcpServer.Tests
         }
 
         [Fact]
+        public void FindFiles_ReturnsFilesWhoseOriginalPathIsRooted()
+        {
+            // Openness imports read FileInfo.ToString(), the original path, and reject a relative one
+            using (var files = new SimaticMlTestFiles())
+            {
+                files.Write(Path.Combine("Program blocks", "Motion", "Axis_FB.xml"), "x");
+                files.Write("Main.xml", "x");
+
+                var withTree = ExchangePaths.FindFiles(new DirectoryInfo(files.Root), ".xml", "", true, "", ExchangePaths.BlocksRootFolder);
+                var flat = ExchangePaths.FindFiles(new DirectoryInfo(files.Root), ".xml", "", false, "", ExchangePaths.BlocksRootFolder);
+
+                foreach (var file in withTree.Concat(flat))
+                {
+                    Assert.True(Path.IsPathRooted(file.File.ToString()), file.File.ToString());
+                    Assert.Equal(file.File.FullName, file.File.ToString());
+                }
+            }
+        }
+
+        [Fact]
+        public void PlanFile_RelativePath_IsMadeAbsolute()
+        {
+            var plan = new XmlImportPlanItem(new FileInfo("Main.xml"), "");
+
+            Assert.True(Path.IsPathRooted(plan.File.ToString()));
+        }
+
+        [Fact]
         public void ToGroupPath_DirectoryOutsideRoot_Throws()
         {
             var root = Path.Combine(Path.GetTempPath(), "import");

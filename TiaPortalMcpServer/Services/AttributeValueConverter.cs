@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -15,7 +16,8 @@ namespace TiaPortalMcpServer.Services
     {
         /// <summary>
         /// Converts <paramref name="text"/> to <paramref name="targetType"/>. Supports strings, booleans, integer and
-        /// floating-point numbers (invariant culture) and enums (member name, case-insensitive).
+        /// floating-point numbers (invariant culture), enums (member name, case-insensitive) and colors (see
+        /// <see cref="TryParseColor"/>).
         /// </summary>
         public static bool TryConvert(string? text, Type targetType, out object? value, out string errorMessage)
         {
@@ -57,6 +59,17 @@ namespace TiaPortalMcpServer.Services
                 return false;
             }
 
+            if (type == typeof(Color))
+            {
+                if (TryParseColor(input, out var color, out errorMessage))
+                {
+                    value = color;
+                    return true;
+                }
+
+                return false;
+            }
+
             if (IsNumeric(type))
             {
                 try
@@ -73,6 +86,88 @@ namespace TiaPortalMcpServer.Services
 
             errorMessage = $"Attributes of type {type.Name} cannot be set from text";
             return false;
+        }
+
+        /// <summary>
+        /// Parses a color: "#RRGGBB", "#AARRGGBB", "R,G,B", "A,R,G,B" (0-255 each, as in Color.FromArgb) or a known
+        /// color name such as "Red" or "Transparent".
+        /// </summary>
+        public static bool TryParseColor(string? text, out Color color, out string errorMessage)
+        {
+            color = Color.Empty;
+            errorMessage = string.Empty;
+            var input = (text ?? string.Empty).Trim();
+
+            if (input.StartsWith("#", StringComparison.Ordinal))
+            {
+                var hex = input.Substring(1);
+                if ((hex.Length == 6 || hex.Length == 8) &&
+                    uint.TryParse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var argb))
+                {
+                    color = Color.FromArgb(hex.Length == 6 ? (int)(argb | 0xFF000000) : unchecked((int)argb));
+                    return true;
+                }
+            }
+            else if (input.IndexOf(',') >= 0)
+            {
+                var parts = input.Split(',');
+                var channels = new int[parts.Length];
+                var valid = parts.Length == 3 || parts.Length == 4;
+                for (var i = 0; valid && i < parts.Length; i++)
+                {
+                    valid = int.TryParse(parts[i].Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out channels[i]) &&
+                            channels[i] <= 255;
+                }
+
+                if (valid)
+                {
+                    color = parts.Length == 3
+                        ? Color.FromArgb(255, channels[0], channels[1], channels[2])
+                        : Color.FromArgb(channels[0], channels[1], channels[2], channels[3]);
+                    return true;
+                }
+            }
+            else if (input.Length > 0)
+            {
+                var named = Color.FromName(input);
+                if (named.IsKnownColor)
+                {
+                    color = Color.FromArgb(named.ToArgb());
+                    return true;
+                }
+            }
+
+            errorMessage = $"'{text}' is not a valid color; use #RRGGBB, #AARRGGBB, R,G,B, A,R,G,B or a color name such as Red";
+            return false;
+        }
+
+        /// <summary>
+        /// Formats a color as "#RRGGBB", or "#AARRGGBB" when it is not fully opaque. Accepted back by <see cref="TryParseColor"/>.
+        /// </summary>
+        public static string FormatColor(Color color)
+        {
+            return color.A == 255
+                ? $"#{color.R:X2}{color.G:X2}{color.B:X2}"
+                : $"#{color.A:X2}{color.R:X2}{color.G:X2}{color.B:X2}";
+        }
+
+        /// <summary>
+        /// A simple attribute value as returned to a client: enums by member name, colors by <see cref="FormatColor"/>,
+        /// everything else unchanged.
+        /// </summary>
+        public static object? ToClientValue(object? value)
+        {
+            if (value is Enum)
+            {
+                return value.ToString();
+            }
+
+            if (value is Color color)
+            {
+                return FormatColor(color);
+            }
+
+            return value;
         }
 
         /// <summary>
@@ -134,7 +229,7 @@ namespace TiaPortalMcpServer.Services
         public static bool IsSimple(Type type)
         {
             var t = Nullable.GetUnderlyingType(type) ?? type;
-            return t == typeof(string) || t == typeof(bool) || t.IsEnum || IsNumeric(t);
+            return t == typeof(string) || t == typeof(bool) || t == typeof(Color) || t.IsEnum || IsNumeric(t);
         }
 
         private static bool IsNumeric(Type type)

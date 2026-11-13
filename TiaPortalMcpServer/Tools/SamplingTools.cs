@@ -139,20 +139,20 @@ namespace TiaPortalMcpServer
                     );
                 }
 
-                // Gather project information
+                // Gather project information. Software sits behind the SoftwareContainer service of a
+                // device item, so it is looked up through HmiUnifiedService rather than DeviceItems.
+                var devices = _sessionManager.PortalService.GetDevicesWithGroupPaths(project)
+                    .Select(entry => entry.Device)
+                    .ToList();
                 var projectInfo = new
                 {
                     Name = project.Name,
                     Path = project.Path?.ToString(),
-                    DeviceCount = project.Devices.Count(),
-                    PlcSoftwareCount = project.Devices
-                        .SelectMany(d => d.DeviceItems)
-                        .OfType<PlcSoftware>()
-                        .Count(),
-                    HmiTargetCount = project.Devices
-                        .SelectMany(d => d.DeviceItems)
-                        .OfType<Software>()
-                        .Count(s => !(s is PlcSoftware)),
+                    DeviceCount = devices.Count,
+                    PlcSoftwareCount = devices
+                        .Count(d => HmiUnifiedService.FindSoftwareItem(d, s => s is PlcSoftware) != null),
+                    HmiTargetCount = devices
+                        .Count(d => HmiUnifiedService.FindSoftwareItem(d, s => !(s is PlcSoftware)) != null),
                 };
 
                 var projectDescription = $"Project Name: {projectInfo.Name}\n" +

@@ -41,7 +41,7 @@ namespace TiaPortalMcpServer
                         "No project is currently open. Use projects_open first.");
                 }
 
-                var devices = project.Devices.Select(d => d.Name).ToList();
+                var devices = _sessionManager.PortalService.GetDevicesWithGroupPaths(project).Select(entry => entry.Device.Name).ToList();
 
                 return McpToolResults.Success(new
                 {

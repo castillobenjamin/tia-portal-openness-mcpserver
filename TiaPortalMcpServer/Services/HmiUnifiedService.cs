@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Newtonsoft.Json.Linq;
 using Siemens.Engineering;
 using Siemens.Engineering.HmiUnified;
 using Siemens.Engineering.HmiUnified.HmiTags;
@@ -343,6 +344,49 @@ namespace TiaPortalMcpServer.Services
             }
         }
 
+        /// <summary>
+        /// Screen item types that snapshots do not read. Reading the system diagnosis control
+        /// (HmiSystemDiagnosisControl) made TIA Portal V21 hang for 26 s and exit with a NonRecoverableException.
+        /// </summary>
+        public static readonly IReadOnlyList<string> SnapshotSkippedTypes = new[] { "HmiSystemDiagnosisControl" };
+
+        /// <summary>
+        /// Owner check for <see cref="HmiSnapshotSerializer"/>: an engineering object or composition belongs to
+        /// <paramref name="owner"/> when its Parent is the owner. Anything else in a property (another screen, a tag, a
+        /// library type) is a reference the snapshot must not read into. Plain .NET values always belong to their owner.
+        /// </summary>
+        public static bool IsSnapshotChild(object value, object owner)
+        {
+            var instance = value as IEngineeringInstance;
+            if (instance == null)
+            {
+                return true;
+            }
+
+            var parent = instance.Parent;
+            return parent != null && (ReferenceEquals(parent, owner) || parent.Equals(owner));
+        }
+
+        /// <summary>
+        /// Converts the Openness values <see cref="HmiSnapshotSerializer"/> does not know: a multilingual text becomes
+        /// { "&lt;culture&gt;": "&lt;text&gt;" } with one entry per project language. Returns null for every other value.
+        /// </summary>
+        public static JToken? ConvertSnapshotValue(object value)
+        {
+            if (!(value is MultilingualText text))
+            {
+                return null;
+            }
+
+            var result = new JObject();
+            foreach (MultilingualTextItem item in text.Items)
+            {
+                result[item.Language?.Culture?.Name ?? string.Empty] = item.Text ?? string.Empty;
+            }
+
+            return result;
+        }
+
         public static string ToTypeName(Type type)
         {
             var name = type.Name;
@@ -477,7 +521,7 @@ namespace TiaPortalMcpServer.Services
                 var value = ReadAttribute(target, info.Name);
                 if (value != null && AttributeValueConverter.IsSimple(value.GetType()))
                 {
-                    attributes[info.Name] = value is Enum ? value.ToString() : value;
+                    attributes[info.Name] = AttributeValueConverter.ToClientValue(value);
                 }
             }
 
@@ -486,7 +530,7 @@ namespace TiaPortalMcpServer.Services
 
         private static string Format(object? value)
         {
-            return value == null ? "(none)" : Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? "(none)";
+            return value == null ? "(none)" : Convert.ToString(AttributeValueConverter.ToClientValue(value), System.Globalization.CultureInfo.InvariantCulture) ?? "(none)";
         }
     }
 }

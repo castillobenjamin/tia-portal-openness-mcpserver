@@ -1067,8 +1067,11 @@ namespace TiaPortalMcpServer
             DocumentOperationResult result;
             try
             {
-                var directory = Directory.CreateDirectory(ExchangePaths.ToExportDirectory(exportPath, ExchangePaths.BlocksRootFolder, groupPath, preservePath));
-                result = _blocksAdapter.ExportAsDocuments(block, directory);
+                var directoryPath = Path.GetFullPath(ExchangePaths.ToExportDirectory(exportPath, ExchangePaths.BlocksRootFolder, groupPath, preservePath));
+                Directory.CreateDirectory(directoryPath);
+                // Not the DirectoryInfo that Directory.CreateDirectory returns: on .NET Framework its ToString() is only the
+                // last folder name, and Openness rejects that as "The argument 'directoryInfo' cannot be a relative path."
+                result = _blocksAdapter.ExportAsDocuments(block, new DirectoryInfo(directoryPath));
             }
             catch (Exception ex)
             {

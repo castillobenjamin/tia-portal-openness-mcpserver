@@ -9,6 +9,7 @@ using Siemens.Engineering.SW;
 using Siemens.Engineering.SW.Blocks;
 using Siemens.Engineering.SW.Blocks.Interface;
 using Siemens.Engineering.SW.ExternalSources;
+using Siemens.Engineering.SW.Tags;
 using Siemens.Engineering.SW.Types;
 using Siemens.Engineering.SW.Loader;
 using TiaPortalMcpServer.Models;
@@ -636,7 +637,8 @@ namespace TiaPortalMcpServer.Services
 
             try
             {
-                block.Export(targetFile, options);
+                // Without the document info header: it holds a creation timestamp that changes on every export
+                block.Export(targetFile, options, DocumentInfoOptions.None);
                 return CreateXmlResult(name, groupPath, targetFile, DocumentOperationResult.StateSuccess, null);
             }
             catch (Exception ex)
@@ -675,7 +677,8 @@ namespace TiaPortalMcpServer.Services
 
             try
             {
-                type.Export(targetFile, options);
+                // Without the document info header: it holds a creation timestamp that changes on every export
+                type.Export(targetFile, options, DocumentInfoOptions.None);
                 return CreateXmlResult(name, groupPath, targetFile, DocumentOperationResult.StateSuccess, null);
             }
             catch (Exception ex)
@@ -786,6 +789,104 @@ namespace TiaPortalMcpServer.Services
                 foreach (var index in pending)
                 {
                     results[index] = ImportTypesFromXml(items[index].Group, items[index].Item, options, swOptions);
+                    if (results[index].IsFailure)
+                    {
+                        failed.Add(index);
+                    }
+                    else if (pass > 1)
+                    {
+                        results[index].Messages.Add($"Imported on pass {pass} after files it depends on");
+                    }
+                }
+
+                if (failed.Count == pending.Count)
+                {
+                    break;
+                }
+                pending = failed;
+            }
+            return results;
+        }
+
+        /// <summary>
+        /// Export a PLC tag table, with its tags and user constants, as a SimaticML file. The document info header (export
+        /// settings, installed products, creation time) is left out so repeated exports of an unchanged table are identical.
+        /// Fails when TIA Portal writes no file or an empty one. Failures are reported in the result instead of being thrown.
+        /// </summary>
+        public DocumentOperationResult ExportTagTableAsXml(PlcTagTable table, FileInfo targetFile, string groupPath, ExportOptions options, bool overwrite)
+        {
+            var name = table.Name;
+            var prepareError = PrepareXmlExportTarget(targetFile, overwrite);
+            if (prepareError != null)
+            {
+                return CreateXmlResult(name, groupPath, targetFile, DocumentOperationResult.StateFailure, prepareError);
+            }
+
+            try
+            {
+                table.Export(targetFile, options, DocumentInfoOptions.None);
+                targetFile.Refresh();
+                if (!targetFile.Exists || targetFile.Length == 0)
+                {
+                    return CreateXmlResult(name, groupPath, targetFile, DocumentOperationResult.StateFailure,
+                        targetFile.Exists ? "TIA Portal wrote an empty file" : "TIA Portal reported no error but wrote no file");
+                }
+
+                return CreateXmlResult(name, groupPath, targetFile, DocumentOperationResult.StateSuccess, null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to export PLC tag table {Name} as SimaticML to {Path}", name, targetFile.FullName);
+                return CreateXmlResult(name, groupPath, targetFile, DocumentOperationResult.StateFailure, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Export each PLC tag table as a SimaticML file. A failing table does not stop the remaining ones.
+        /// </summary>
+        public DocumentBatchResult ExportTagTablesAsXml(IEnumerable<(PlcTagTable Table, FileInfo File, string GroupPath)> items, ExportOptions options, bool overwrite)
+        {
+            var results = new List<DocumentOperationResult>();
+            foreach (var item in items)
+            {
+                results.Add(ExportTagTableAsXml(item.Table, item.File, item.GroupPath, options, overwrite));
+            }
+            return DocumentBatchResult.From(results);
+        }
+
+        /// <summary>
+        /// Import the PLC tag tables of a SimaticML file into the given tag table group. Failures are reported in the result instead of being thrown.
+        /// </summary>
+        public DocumentOperationResult ImportTagTablesFromXml(PlcTagTableGroup tagTableGroup, XmlImportPlanItem item, ImportOptions options)
+        {
+            try
+            {
+                var imported = tagTableGroup.TagTables.Import(item.File, options);
+                var result = XmlImportPlanner.CreateResult(item, DocumentOperationResult.StateSuccess, $"Imported into '{DisplayGroupPath(item.GroupPath)}'");
+                result.TagTables = imported.Select(table => table.Name).ToList();
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to import PLC tag tables from {Path}", item.File.FullName);
+                return XmlImportPlanner.CreateResult(item, DocumentOperationResult.StateFailure, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Import the PLC tag tables of several SimaticML files, retrying failed files while another pass makes progress,
+        /// so tables whose tags use constants of another table can come in any order. Results are returned in the order of <paramref name="items"/>.
+        /// </summary>
+        public IList<DocumentOperationResult> ImportTagTablesFromXmlFiles(IList<(PlcTagTableGroup Group, XmlImportPlanItem Item)> items, ImportOptions options)
+        {
+            var results = new DocumentOperationResult[items.Count];
+            var pending = Enumerable.Range(0, items.Count).ToList();
+            for (var pass = 1; pending.Count > 0; pass++)
+            {
+                var failed = new List<int>();
+                foreach (var index in pending)
+                {
+                    results[index] = ImportTagTablesFromXml(items[index].Group, items[index].Item, options);
                     if (results[index].IsFailure)
                     {
                         failed.Add(index);

@@ -116,7 +116,6 @@ The block, tag and software tools below (and the advanced block tools) take an o
 - `tags_tagtable_list` - List tag tables
 - `tags_tagtable_get` - Get a tag table
 - `tags_tagtable_delete` - Delete a tag table
-- `tags_tagtable_export` - Export a tag table
 - `tags_tagtable_open_editor` - Open a tag table in the TIA editor
 - `tags_group_create` - Create a tag group
 - `tags_group_list` - List tag groups
@@ -148,7 +147,9 @@ The block, tag and software tools below (and the advanced block tools) take an o
 - `blocks_ob_priority_set` - Set OB priority
 
 ### SimaticML XML Exchange
-Export and import blocks and PLC data types (UDTs) as SimaticML `.xml` files. These tools also take an optional `unitName`. Exports search all groups. `importOption` (`None`, `Override`, `SkipInactiveCultures`, `ActivateInactiveCultures`) and `swImportOption` (`IgnoreStructuralChanges`, `IgnoreMissingReferencedObjects`, `IgnoreUnitAttributes`) take comma-separated names. Imports support `dryRun`, skip files that hold the other kind of object, retry files whose dependencies were not imported yet, and save the project after a successful import.
+Export and import blocks, PLC data types (UDTs) and PLC tag tables as SimaticML `.xml` files. These tools also take an optional `unitName`. Exports search all groups. `importOption` (`None`, `Override`, `SkipInactiveCultures`, `ActivateInactiveCultures`) and `swImportOption` (`IgnoreStructuralChanges`, `IgnoreMissingReferencedObjects`, `IgnoreUnitAttributes`) take comma-separated names. Imports support `dryRun`, skip files that hold the other kind of object, retry files whose dependencies were not imported yet, and save the project after a successful block or type import.
+
+All SimaticML exports leave out the document info header (export settings, installed products, creation timestamp), so exporting an unchanged object again gives an identical file. `includeDefaults` (default `false`) also writes attributes that still have their default value; leave it off to match files exported without it.
 
 - `blocks_export_as_xml` - Export one block as SimaticML
 - `blocks_export_all_as_xml` - Export all blocks, optionally filtered by name/regex
@@ -158,6 +159,12 @@ Export and import blocks and PLC data types (UDTs) as SimaticML `.xml` files. Th
 - `types_export_all_as_xml` - Export all PLC data types, optionally filtered by name/regex
 - `types_import_from_xml` - Import the PLC data types of one SimaticML file into a type group
 - `types_import_all_from_xml` - Import the PLC data types of all SimaticML files in a directory
+- `tags_tagtable_export` - Export one PLC tag table as SimaticML, to a directory or an `.xml` file path
+- `tags_tagtable_export_all` - Export all PLC tag tables, optionally filtered by name/regex
+- `tags_tagtable_import` - Import one tag table file into a tag table group
+- `tags_tagtable_import_all` - Import the tag tables of all SimaticML files in a directory
+
+Tag table exports fail when TIA Portal writes no file or an empty one. Tag table imports take `importOption` only (default `Override`) and do not save the project; each imported file's result says so. Call `projects_save` to keep the result.
 
 ### SIMATIC SD Documents
 Export and import blocks as SIMATIC SD documents (`.s7dcl`/`.s7res`). These tools also take an optional `unitName`.
@@ -168,7 +175,7 @@ Export and import blocks as SIMATIC SD documents (`.s7dcl`/`.s7res`). These tool
 - `blocks_import_all_from_documents` - Import all document pairs in a directory
 
 ### Keeping the TIA Folder Structure (`preservePath`)
-The bulk export and import tools for SimaticML and SD documents, and the single-object exports, take `preservePath`. With `preservePath=true`, exports mirror the TIA project tree below `exportPath`: blocks go below `Program blocks/` and PLC data types below `PLC data types/`, each followed by the group path. Blocks and types can share one `exportPath`:
+The bulk export and import tools for SimaticML and SD documents, and the single-object exports, take `preservePath`. With `preservePath=true`, exports mirror the TIA project tree below `exportPath`: blocks go below `Program blocks/`, PLC data types below `PLC data types/` and tag tables below `PLC tags/`, each followed by the group path. All three can share one `exportPath`:
 
 ```text
 exportPath/
@@ -177,9 +184,26 @@ exportPath/
     Motion/Axis/Axis_FB.xml
   PLC data types/
     Motion/Axis_UDT.xml
+  PLC tags/
+    Default tag table.xml
+    IO/Inputs.xml
 ```
 
-Bulk imports with `preservePath=true` read the same layout back. Pass the same path as `importPath`: the tree starts in `importPath/Program blocks` (blocks) or `importPath/PLC data types` (types) when that folder exists, and in `importPath` itself otherwise. Each subdirectory is imported into the group of the same path below `groupName`, and missing groups are created. Without `preservePath`, exports write all files directly into `exportPath` and imports read only the files directly in `importPath`.
+Bulk imports with `preservePath=true` read the same layout back. Pass the same path as `importPath`: the tree starts in `importPath/Program blocks` (blocks) or `importPath/PLC data types` (types) or `importPath/PLC tags` (tag tables) when that folder exists, and in `importPath` itself otherwise. Each subdirectory is imported into the group of the same path below `groupName`, and missing groups are created. Without `preservePath`, exports write all files directly into `exportPath` and imports read only the files directly in `importPath`.
+
+### Hardware Configuration (CAx)
+Export the hardware configuration as AutomationML for review and version control. There is no CAx import tool: a CAx import creates objects and does not update an existing project.
+
+- `cax_export` - Export the whole project, or one device (`deviceName`), as an `.aml` file in an existing `exportPath`
+
+TIA Portal's transfer messages go to a `.log` file of the same name next to the `.aml`. The export can succeed partially, so the response gives the overall state, error and warning counts and the error and warning messages (up to 100 each; `messagesTruncated` says when the log holds more). Each message is reported where the problem starts, with the messages it is nested in as a ` > ` separated prefix; TIA Portal's closing line ("... completed (errors: 1, warnings: 0)") goes to `summary`. An existing `.aml` is replaced only with `overwrite=true`. With `normalize=true`, element IDs are replaced with GUIDs derived from each element's path (element name, `Name` and position among equally named siblings), references to them are rewritten to match, write timestamps (`LastWritingDateTime`) are set to `1970-01-01T00:00:00`, and the log leaves out timestamps, so exporting an unchanged project again gives identical files. Nothing else is changed or reordered. The AML does not hold every parameter shown in the TIA Portal properties; `hardware_snapshot` covers those.
+
+### Hardware parameter snapshots
+- `hardware_snapshot(exportPath, deviceName = "")` - Write one JSON file per device to `<exportPath>\Hardware\<device folder path>\<device>.json`, for review in git (snapshots cannot be imported)
+
+Each file holds every readable Openness attribute of the device and of each device item below it (`items`, keyed by name), with the item's network interface (`network`: its `nodes`, `ioConnectors` with update and watchdog times, and `ioControllers` with their `ioSystem`) and its `channels` (keyed `<IoType> <Type> <Number>`). This includes what the AML leaves out: F-parameters (F-monitoring time, F-SIL, signatures), channel parameters such as input delays, PROFINET send clock, update and watchdog times and device names, diagnostics and CPU settings. Parameters of GSD modules (record data) have no Openness attributes and are not included.
+
+Enums are written by member name, multilingual texts as `{ "<culture>": "<text>" }`, references to other objects as `{ "@ref": "<device>/<item>/..." }` without reading them; attributes that cannot be read are listed under `@unreadable`. Same output rules as the HMI snapshots: sorted keys, UTF-8 without BOM, LF line endings and a final newline; unchanged files are not rewritten, and files of deleted or renamed devices are not removed. On M2 (39 devices) a snapshot takes about two minutes.
 
 ### Utility Operations
 - `utilities_get_project_info` - Get project information
@@ -207,12 +231,13 @@ The compilation tools return the overall state, error and warning counts, and ea
 - `hmi_targets_validate` - Validate HMI target configuration
 
 ### WinCC Unified HMI
-Tools for WinCC Unified HMI software (Unified Comfort Panels and PC runtimes). Write tools support `dryRun` and change the open project in memory; call `projects_save` to persist the changes. Attributes are passed as a JSON object such as `{"Left": 20, "Top": 40, "Text": "Start"}`; numbers, booleans, enum member names and strings are converted to each attribute's type, and for multilingual texts a plain value sets every language while `de-DE:Start` sets one.
+Tools for WinCC Unified HMI software (Unified Comfort Panels and PC runtimes). Write tools support `dryRun` and change the open project in memory; call `projects_save` to persist the changes. Attributes are passed as a JSON object such as `{"Left": 20, "Top": 40, "Text": "Start"}`; numbers, booleans, enum member names and strings are converted to each attribute's type, colors are given as `#RRGGBB`, `#AARRGGBB`, `R,G,B`, `A,R,G,B` or a name such as `Red` (and are listed as `#RRGGBB` / `#AARRGGBB`), and for multilingual texts a plain value sets every language while `de-DE:Start` sets one.
 
-- `hmi_unified_software_list` - List the WinCC Unified HMI devices with counts of screens, tags, tag tables, connections and text lists
+- `hmi_unified_software_list` - List the WinCC Unified HMI devices with counts of screens, tags, tag tables, connections, text lists, graphic lists and system text lists
 - `hmi_unified_screens_list` - List screens, including screens in screen groups
 - `hmi_unified_screen_create` - Create a screen, optionally in a screen group
 - `hmi_unified_screen_delete` - Delete a screen
+- `hmi_unified_screens_snapshot` - Write a deterministic JSON review snapshot per screen for git diffs (see below)
 - `hmi_unified_screen_items_list` - List the items of a screen with type, position and size (`includeAttributes=true` for all simple attributes)
 - `hmi_unified_screen_item_types_list` - List the screen item types that can be created
 - `hmi_unified_screen_item_create` - Create a screen item and set its attributes
@@ -222,10 +247,39 @@ Tools for WinCC Unified HMI software (Unified Comfort Panels and PC runtimes). W
 - `hmi_unified_tags_list` - List HMI tags, optionally by tag table and name/regex
 - `hmi_unified_tag_create` - Create an internal or external (PLC-bound) HMI tag
 - `hmi_unified_tag_delete` - Delete an HMI tag
+- `hmi_unified_tags_export` - Export HMI tags per tag table to `<exportPath>\<tag table group path>\<table>\`: all tables, one table (`tagTableName`) or one tag (`tagName`). TIA Portal V21 cannot export all tags of a device at once
+- `hmi_unified_tags_import` - Import such table directories back, each into the tag table of the same name; missing groups and tables are created
 - `hmi_unified_connections_list` - List HMI connections
 - `hmi_unified_textlists_list` - List text lists
-- `hmi_unified_textlists_export` - Export all text lists with their entries to a file
+- `hmi_unified_textlists_export` - Export all text lists with their entries to a file named after `fileName`
 - `hmi_unified_textlists_import` - Import text lists from such a file
+- `hmi_unified_graphiclists_list` - List graphic lists
+- `hmi_unified_graphiclists_export` - Export all graphic lists with their entries to `<fileName>.hmi.yml` (YAML)
+- `hmi_unified_graphiclists_import` - Import graphic lists from such a file
+- `hmi_unified_systemtextlists_export` - Export all system text lists to `<fileName>.hmi.yml` and `<fileName>.TextLibrary.hmi.yml`
+- `hmi_unified_systemtextlists_import` - Import system text lists from such a file. In TIA Portal V21 this import was seen to double `@@` escapes in texts (single `@` placeholders such as `@3%s@` stay as they are), so do not edit the file to compensate; compare a fresh export before saving. The result's `warnings` list every line of the file and of its `.TextLibrary.hmi.yml` that holds `@@`, also with `dryRun`
+
+For the list tools, `fileName` is a base name such as `GraphicLists`; TIA Portal adds its own extension. The imports accept the same base name or the name of the written `.hmi.yml` file.
+- `hmi_unified_scripts_list` - List global script modules
+- `hmi_unified_scripts_export` - Export all script modules, or one module, to files
+- `hmi_unified_scripts_import` - Import script modules, or one file, from such files. TIA Portal V21 imports comments that stand between the `End of Global definition area` comment and the first function into the global definition area, so the next export moves that comment below them once; the result's `warnings` name the affected files, also with `dryRun`
+
+#### Screen snapshots
+WinCC Unified screens have no Openness export, so `hmi_unified_screens_snapshot(deviceName, exportPath, screenName = "")` reads them through the object model and writes one file per screen to `<exportPath>\Screens\<screen group path>\<screen>.json`, for review in git (snapshots cannot be imported):
+
+- Every readable property of the screen and of each item, with an `@type` key per object; items stay in their z-order.
+- Only objects that belong to the screen or item are read (their `Parent` is the object holding them). References to other engineering objects, such as another screen or a faceplate's library type, are written as `{ "@type": "<type>", "@ref": "<name>" }` without reading them. Each screen and item is logged before it is read, so the log file names the object if reading fails.
+- Parts such as fonts as nested objects; dynamizations keyed by property, event handlers keyed by event, faceplate interfaces keyed by property; empty collections are left out.
+- Colors as `#AARRGGBB`, enums by member name, multilingual texts as `{ "<culture>": "<text>" }`.
+- Script code in sidecar files below `<screen>.scripts\`: `<item>.<event>.js` for event handlers (the screen's own events use the screen name), `<item>.<property>.dyn.js` for script dynamizations, with `.global` before the extension for global definition areas. The JSON references them as `{ "file": "<screen>.scripts/<file>" }`.
+- Properties that cannot be read are listed per object under `@unreadable` and in the tool result. `DynamizationType` and `PropertyName` of an event handler's script, which TIA Portal never supports there, are left out without an entry.
+- System diagnosis controls (`HmiSystemDiagnosisControl`) are written as `{ "@type", "Name", "@skipped" }` without reading them: reading one made TIA Portal V21 hang and exit. If a read still ends the snapshot, the error names the screen, item path, property and type being read.
+- Sorted keys, UTF-8 without BOM, LF line endings and a final newline, so an unchanged screen gives identical files; files whose content is unchanged are not rewritten. Files of deleted or renamed screens and scripts are not removed; the tool returns every file of the run.
+
+The same format covers the rest of the HMI configuration, with one file per collection, `{ "items": { "<name>": { ... } } }`, sorted by name:
+
+- `hmi_unified_alarms_snapshot(deviceName, exportPath)` - `<exportPath>\Alarms\DiscreteAlarms.json`, `AnalogAlarms.json` and `AlarmClasses.json`, including trigger tags and bits, acknowledgment tags, alarm classes, priorities and multilingual alarm texts
+- `hmi_unified_settings_snapshot(deviceName, exportPath)` - `<exportPath>\Settings\Connections.json` (with driver properties), `DataLogs.json`, `AlarmLogs.json`, `AuditTrails.json` and `RuntimeSettings.json`; collections a device does not support are reported in the result instead
 
 ### Sampling (LLM-assisted)
 - `sampling_generate_code` - Generate code with LLM assistance
@@ -249,7 +303,7 @@ This will allow you to interactively test all available tools.
 
 - Built with .NET Framework 4.8 and ModelContextProtocol SDK
 - Logging provided by Serilog (configured via appsettings.json)
-- All logs written to stderr to maintain MCP protocol integrity on stdout
+- All logs written to stderr to maintain MCP protocol integrity on stdout, and to `logs\tiaportal-mcp.log` next to the exe (`appsettings.json` is read from the exe's directory, not the client's working directory)
 - Full TIA integration requires Windows environment with TIA Portal installed
 - Error handling maps TIA exceptions to MCP error codes
 
@@ -261,7 +315,7 @@ This will allow you to interactively test all available tools.
 - Dependency injection with Microsoft.Extensions.Hosting
 - **Logging:** Serilog configured to write to stderr (required for MCP protocol compatibility)
 - **Project structure is organized by feature and concern:**
-   - `Tools/` — MCP tool classes grouped by domain (ProjectManagement, Device, DeviceItem, Software, Tag, Blocks, Compilation, File, HmiTarget, Utility, Sampling, UserInteraction, Test, Hardware)
+   - `Tools/` — MCP tool classes grouped by domain (ProjectManagement, Device, DeviceItem, Software, Tag, Blocks, XmlExchange, Cax, Compilation, File, HmiTarget, Utility, Sampling, UserInteraction, Test, Hardware)
    - `Services/` — TIA Portal adapters and session management (TiaPortalService, TiaPortalSessionManager, BlocksAdapter, HmiTargetAdapter, FileAdapter)
    - `Models/` — Data transfer objects and result models
    - `Extensions/` — DI and service collection helpers

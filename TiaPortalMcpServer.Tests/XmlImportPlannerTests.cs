@@ -97,6 +97,61 @@ namespace TiaPortalMcpServer.Tests
         }
 
         [Fact]
+        public void PlanDirectory_TagTables_WithPreservePath_ReadsExportedProjectTree()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                // Layout written by tags_tagtable_export_all with preservePath=true
+                files.Write(Path.Combine("PLC tags", "Default tag table.xml"), SimaticMlTestFiles.TagTable("Default tag table"));
+                files.Write(Path.Combine("PLC tags", "Units", "SWS_IO.xml"), SimaticMlTestFiles.TagTable("SWS_IO"));
+                files.Write(Path.Combine("Program blocks", "Main.xml"), SimaticMlTestFiles.Block("Main"));
+
+                var plans = XmlImportPlanner.PlanDirectory(new DirectoryInfo(files.Root), "", true, "", SimaticMlInspector.KindTagTable);
+
+                Assert.Equal(2, plans.Count);
+                Assert.Equal("", plans.Single(p => p.Name == "Default tag table").GroupPath);
+                Assert.Equal("Units", plans.Single(p => p.Name == "SWS_IO").GroupPath);
+                Assert.All(plans, p => Assert.Null(p.Result));
+            }
+        }
+
+        [Fact]
+        public void PlanFile_BlockFileForTagTableImport_IsSkipped()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var path = files.Write("Main.xml", SimaticMlTestFiles.Block("Main"));
+
+                var plan = XmlImportPlanner.PlanFile(new FileInfo(path), "", SimaticMlInspector.KindTagTable);
+
+                Assert.Equal(DocumentOperationResult.StateSkipped, plan.Result.State);
+            }
+        }
+
+        [Fact]
+        public void PlanFile_TagTableFileForBlockImport_IsSkipped()
+        {
+            using (var files = new SimaticMlTestFiles())
+            {
+                var path = files.Write("Default tag table.xml", SimaticMlTestFiles.TagTable("Default tag table"));
+
+                var plan = XmlImportPlanner.PlanFile(new FileInfo(path), "", SimaticMlInspector.KindBlock);
+
+                Assert.Equal(DocumentOperationResult.StateSkipped, plan.Result.State);
+                Assert.Contains("PLC tag table", plan.Result.Messages.Single());
+            }
+        }
+
+        [Theory]
+        [InlineData(SimaticMlInspector.KindBlock, ExchangePaths.BlocksRootFolder)]
+        [InlineData(SimaticMlInspector.KindType, ExchangePaths.TypesRootFolder)]
+        [InlineData(SimaticMlInspector.KindTagTable, ExchangePaths.TagTablesRootFolder)]
+        public void GetRootFolder_MapsKindToProjectTreeFolder(string kind, string expected)
+        {
+            Assert.Equal(expected, XmlImportPlanner.GetRootFolder(kind));
+        }
+
+        [Fact]
         public void PlanFile_InvalidFile_Fails()
         {
             using (var files = new SimaticMlTestFiles())
