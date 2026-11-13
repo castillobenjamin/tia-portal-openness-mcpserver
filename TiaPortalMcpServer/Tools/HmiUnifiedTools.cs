@@ -190,7 +190,7 @@ namespace TiaPortalMcpServer
             });
         }
 
-        [McpServerTool(Destructive = false, Idempotent = true, OpenWorld = true), Description("Write a review snapshot of WinCC Unified screens for diffing in git: one JSON file per screen at <exportPath>\\Screens\\<screen group path>\\<screen>.json with every readable property of the screen and of its items (in z-order), including parts such as fonts, dynamizations keyed by property, event handlers keyed by event and faceplate interfaces. Colors are #AARRGGBB, enums member names, multilingual texts { \"<culture>\": \"<text>\" }. Script code goes to sidecar files in <screen>.scripts\\ (<item>.<event>.js, <item>.<property>.dyn.js, and .global.js for global definition areas) referenced as { \"file\": ... }. Output is deterministic: sorted keys, UTF-8 without BOM, LF line endings; unchanged files are not rewritten. Properties that cannot be read are listed under \"@unreadable\". Returns every file of this run; files of deleted or renamed screens and scripts are not removed. Snapshots cannot be imported. The project is not changed. Prerequisites: Project must be open, device must have WinCC Unified HMI software, exportPath must exist.")]
+        [McpServerTool(Destructive = false, Idempotent = true, OpenWorld = true), Description("Write a review snapshot of WinCC Unified screens for diffing in git: one JSON file per screen at <exportPath>\\Screens\\<screen group path>\\<screen>.json with every readable property of the screen and of its items (in z-order), including parts such as fonts, dynamizations keyed by property, event handlers keyed by event and faceplate interfaces. Colors are #AARRGGBB, enums member names, multilingual texts { \"<culture>\": \"<text>\" }. Script code goes to sidecar files in <screen>.scripts\\ (<item>.<event>.js, <item>.<property>.dyn.js, and .global.js for global definition areas) referenced as { \"file\": ... }. Output is deterministic: sorted keys, UTF-8 without BOM, LF line endings; unchanged files are not rewritten. Properties that cannot be read are listed under \"@unreadable\". System diagnosis controls (HmiSystemDiagnosisControl) are written with their name and \"@skipped\" only, because reading them crashed TIA Portal V21. If reading still ends the snapshot, the error names the screen, item, property and type being read. Returns every file of this run; files of deleted or renamed screens and scripts are not removed. Snapshots cannot be imported. The project is not changed. Prerequisites: Project must be open, device must have WinCC Unified HMI software, exportPath must exist.")]
         public CallToolResult hmi_unified_screens_snapshot(
             [Description(DeviceDescription)] string deviceName,
             [Description("Directory to write the snapshot to; the files go to its Screens subdirectory")] string exportPath,
@@ -856,7 +856,7 @@ namespace TiaPortalMcpServer
                         var count = 0;
                         foreach (var file in written ?? Enumerable.Empty<FileInfo>())
                         {
-                            files.Add(file.FullName);
+                            files.Add(HmiExchangeFiles.WrittenFile(file));
                             count++;
                         }
                         result.Changes.Add(name.Length == 0
@@ -1117,14 +1117,14 @@ namespace TiaPortalMcpServer
                 {
                     DeviceName = deviceName,
                     Target = name.Length == 0 ? "script modules" : $"script module '{name}'",
-                    Files = files?.Select(f => f.FullName).ToList() ?? new List<string>()
+                    Files = files?.Select(HmiExchangeFiles.WrittenFile).ToList() ?? new List<string>()
                 };
                 result.Changes.Add(summary);
                 return ToolResponse<HmiOperationResult>.CreateSuccess(result);
             });
         }
 
-        [McpServerTool(Destructive = true, OpenWorld = true), Description("Import global script modules into a WinCC Unified HMI from files written by hmi_unified_scripts_export (or edited from them) in importPath: all of them, or a single file by name. Existing modules of the same name are updated. Prerequisites: Project must be open, device must have WinCC Unified HMI software, importPath must exist. Use dryRun=true to see the files without importing." + SaveNote)]
+        [McpServerTool(Destructive = true, OpenWorld = true), Description("Import global script modules into a WinCC Unified HMI from files written by hmi_unified_scripts_export (or edited from them) in importPath: all of them, or a single file by name. Existing modules of the same name are updated. TIA Portal V21 imports comments that stand between the 'End of Global definition area' comment and the first function into the global definition area, so the next export moves that comment below them; the result's warnings name the affected files, also with dryRun=true. Prerequisites: Project must be open, device must have WinCC Unified HMI software, importPath must exist. Use dryRun=true to see the files without importing." + SaveNote)]
         public CallToolResult hmi_unified_scripts_import(
             [Description(DeviceDescription)] string deviceName,
             [Description("Directory containing the files written by hmi_unified_scripts_export")] string importPath,
@@ -1182,6 +1182,12 @@ namespace TiaPortalMcpServer
                 result.Changes.Add(file.Length == 0
                     ? $"Import script modules from '{directory.FullName}'"
                     : $"Import script modules from '{files[0]}'");
+                var warnings = HmiExchangeFiles.GlobalAreaWarnings(HmiExchangeFiles.ScriptFiles(files));
+                if (warnings.Count > 0)
+                {
+                    result.Warnings = warnings;
+                }
+
                 if (dryRun)
                 {
                     return ToolResponse<HmiOperationResult>.CreateSuccess(result);
@@ -1450,7 +1456,7 @@ namespace TiaPortalMcpServer
             {
                 DeviceName = deviceName,
                 Target = listKind,
-                Files = files?.Select(f => f.FullName).ToList() ?? new List<string>()
+                Files = files?.Select(HmiExchangeFiles.WrittenFile).ToList() ?? new List<string>()
             };
             result.Changes.Add($"Exported {count(software)} {listKind}");
             return ToolResponse<HmiOperationResult>.CreateSuccess(result);
@@ -1539,7 +1545,8 @@ namespace TiaPortalMcpServer
                 ExchangePaths.ToFileName(name) + ".scripts",
                 HmiUnifiedService.ConvertSnapshotValue,
                 HmiUnifiedService.IsSnapshotChild,
-                path => _logger.LogDebug("Snapshot: reading {Path}", path));
+                path => _logger.LogDebug("Snapshot: reading {Path}", path),
+                HmiUnifiedService.SnapshotSkippedTypes);
         }
 
         /// <summary>

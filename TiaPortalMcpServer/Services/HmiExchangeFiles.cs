@@ -43,6 +43,139 @@ namespace TiaPortalMcpServer.Services
             return yaml.Exists ? yaml : null;
         }
 
+        /// <summary>
+        /// The path of a file an HMI export wrote. TIA Portal V21 returns some paths without the ".hmi.yml" the file
+        /// got on disk (HMI tag tables); such a path is completed when only the completed one exists.
+        /// </summary>
+        public static string WrittenFile(FileInfo file)
+        {
+            var path = file.FullName;
+            if (File.Exists(path))
+            {
+                return path;
+            }
+
+            var yaml = path + YamlExtension;
+            return File.Exists(yaml) ? yaml : path;
+        }
+
+        public const string ScriptExtension = ".js";
+
+        /// <summary>
+        /// The comment TIA Portal writes at the end of the global definition area of a script module file.
+        /// </summary>
+        public const string GlobalAreaEndMarker = "***End of Global definition area***";
+
+        /// <summary>
+        /// The script files a script module import reads: the ".js" files among <paramref name="files"/>, plus the
+        /// "&lt;module&gt;.hmi.js" next to each "&lt;module&gt;.hmi.yml". Each file once, in the order found.
+        /// </summary>
+        public static List<FileInfo> ScriptFiles(IEnumerable<string> files)
+        {
+            var result = new List<FileInfo>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var path in files)
+            {
+                var script = path;
+                if (path.EndsWith(YamlExtension, StringComparison.OrdinalIgnoreCase))
+                {
+                    script = path.Substring(0, path.Length - ".yml".Length) + ScriptExtension;
+                }
+
+                if (script.EndsWith(ScriptExtension, StringComparison.OrdinalIgnoreCase) && File.Exists(script) && seen.Add(Path.GetFullPath(script)))
+                {
+                    result.Add(new FileInfo(script));
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Warnings for script module files whose first function is preceded by comments after the end of the global
+        /// definition area. TIA Portal V21 imports such comments into the global definition area, so the next export
+        /// writes the end-of-area comment after them instead of before them. Empty when no file has such comments.
+        /// </summary>
+        public static List<string> GlobalAreaWarnings(IEnumerable<FileInfo> scriptFiles)
+        {
+            var affected = new List<string>();
+            foreach (var file in scriptFiles)
+            {
+                var lines = File.ReadAllLines(file.FullName);
+                var count = CommentLinesAfterGlobalArea(lines);
+                if (count > 0)
+                {
+                    affected.Add($"{file.Name}: {count} comment line(s) after the end of the global definition area, before the first function");
+                }
+            }
+
+            if (affected.Count == 0)
+            {
+                return affected;
+            }
+
+            var warnings = new List<string>
+            {
+                $"{affected.Count} script file(s) have comments between the end of the global definition area and the first function. " +
+                "TIA Portal V21 imports these comments into the global definition area, so the next export writes the " +
+                "'End of Global definition area' comment after them and the file changes once. The script code itself is not changed."
+            };
+            warnings.AddRange(affected);
+            return warnings;
+        }
+
+        /// <summary>
+        /// The number of comment lines between the end of the comment holding <see cref="GlobalAreaEndMarker"/> and the
+        /// first line of code; 0 when there is no marker.
+        /// </summary>
+        public static int CommentLinesAfterGlobalArea(IReadOnlyList<string> lines)
+        {
+            var index = 0;
+            while (index < lines.Count && lines[index].IndexOf(GlobalAreaEndMarker, StringComparison.Ordinal) < 0)
+            {
+                index++;
+            }
+
+            while (index < lines.Count && lines[index].IndexOf("*/", StringComparison.Ordinal) < 0)
+            {
+                index++;
+            }
+
+            if (index >= lines.Count)
+            {
+                return 0;
+            }
+
+            var count = 0;
+            var inBlock = false;
+            for (index++; index < lines.Count; index++)
+            {
+                var line = lines[index].Trim();
+                if (inBlock)
+                {
+                    count++;
+                    inBlock = line.IndexOf("*/", StringComparison.Ordinal) < 0;
+                }
+                else if (line.Length == 0)
+                {
+                    continue;
+                }
+                else if (line.StartsWith("//", StringComparison.Ordinal))
+                {
+                    count++;
+                }
+                else if (line.StartsWith("/*", StringComparison.Ordinal))
+                {
+                    count++;
+                    inBlock = line.IndexOf("*/", 2, StringComparison.Ordinal) < 0;
+                }
+                else
+                {
+                    break;
+                }
+            }
+            return count;
+        }
+
         public const string TextLibrarySuffix = ".TextLibrary";
 
         public const string DoubleEscape = "@@";

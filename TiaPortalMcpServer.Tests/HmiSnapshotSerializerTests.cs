@@ -249,6 +249,104 @@ namespace TiaPortalMcpServer.Tests
             Assert.Null(start["Broken"]);
         }
 
+        private sealed class FakeNonRecoverableException : Exception
+        {
+            public FakeNonRecoverableException() : base("Unexpected exception - no exception message available.")
+            {
+            }
+        }
+
+        private sealed class FakeScriptDynamization
+        {
+            public string ScriptCode { get; set; } = string.Empty;
+
+            public string DynamizationType => throw new InvalidOperationException("not supported for event script action");
+
+            public string PropertyName => throw new InvalidOperationException("not supported for event script action");
+        }
+
+        private sealed class FakeScriptEventHandler
+        {
+            public FakeEventType EventType { get; set; }
+
+            public FakeScriptDynamization Script { get; set; } = new FakeScriptDynamization { ScriptCode = "// tapped" };
+        }
+
+        private sealed class FakeEventItem
+        {
+            public string Name { get; set; } = "Pump";
+
+            public List<FakeScriptEventHandler> EventHandlers { get; set; } = new List<FakeScriptEventHandler> { new FakeScriptEventHandler() };
+
+            public FakeScriptDynamization Other { get; set; } = new FakeScriptDynamization();
+        }
+
+        [Fact]
+        public void Snapshot_EventScriptLeavesOutUnsupportedPropertiesQuietly()
+        {
+            var screen = new FakeScreen();
+            screen.ScreenItems.Add(new FakeEventItem());
+            var serializer = new HmiSnapshotSerializer("Main.scripts", ConvertText);
+
+            var item = (JObject)serializer.Serialize(screen, "Main")["ScreenItems"][0];
+
+            var script = (JObject)item["EventHandlers"]["Tapped"]["Script"];
+            Assert.Null(script["@unreadable"]);
+            Assert.Null(script["DynamizationType"]);
+            Assert.NotNull(script["ScriptCode"]);
+            Assert.Equal(new[] { "DynamizationType", "PropertyName" }, item["Other"]["@unreadable"].ToObject<string[]>());
+            Assert.Equal(2, serializer.Unreadable.Count);
+            Assert.All(serializer.Unreadable, line => Assert.StartsWith("Main: Pump.Other.", line));
+        }
+
+        private sealed class HmiSystemDiagnosisControl
+        {
+            public string Name { get; set; } = "System_DiagnosticsView";
+
+            public int Left => throw new FakeNonRecoverableException();
+        }
+
+        [Fact]
+        public void Snapshot_SkippedTypeIsWrittenWithoutReadingIt()
+        {
+            var screen = new FakeScreen();
+            screen.ScreenItems.Add(new HmiSystemDiagnosisControl());
+            var serializer = new HmiSnapshotSerializer("Main.scripts", ConvertText, skippedTypes: new[] { "HmiSystemDiagnosisControl" });
+
+            var item = (JObject)serializer.Serialize(screen, "Main")["ScreenItems"][0];
+
+            Assert.Equal(new[] { "@skipped", "@type", "Name" }, item.Properties().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal));
+            Assert.Equal("HmiSystemDiagnosisControl", (string)item["@type"]);
+            Assert.Equal("System_DiagnosticsView", (string)item["Name"]);
+            Assert.Equal(HmiSnapshotSerializer.SkippedReason, (string)item["@skipped"]);
+        }
+
+        private sealed class FakeFatalPart
+        {
+            public int Width => throw new FakeNonRecoverableException();
+        }
+
+        private sealed class FakeFatalItem
+        {
+            public string Name { get; set; } = "Diag";
+
+            public FakeFatalPart Matrix { get; set; } = new FakeFatalPart();
+        }
+
+        [Fact]
+        public void Snapshot_FailureThatEndsTheSnapshot_NamesThePropertyBeingRead()
+        {
+            var screen = new FakeScreen();
+            screen.ScreenItems.Add(new FakeFatalItem());
+            var serializer = new HmiSnapshotSerializer("Main.scripts", ConvertText);
+
+            var ex = Assert.Throws<HmiSnapshotReadException>(() => serializer.Serialize(screen, "Main"));
+
+            Assert.Equal("Main: Diag.Matrix.Width (FakeFatalPart)", ex.Location);
+            Assert.IsType<FakeNonRecoverableException>(ex.InnerException);
+            Assert.Contains("Unexpected exception", ex.Message);
+        }
+
         private sealed class FakeAlarm
         {
             public string Name { get; set; } = string.Empty;

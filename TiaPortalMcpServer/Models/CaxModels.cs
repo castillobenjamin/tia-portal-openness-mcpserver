@@ -34,6 +34,13 @@ namespace TiaPortalMcpServer.Models
         public int WarningCount { get; set; }
 
         /// <summary>
+        /// TIA Portal's closing message, such as "Exporting of the CAx data is completed (errors: 1, warnings: 0)";
+        /// not repeated in <see cref="Errors"/> or <see cref="Warnings"/>.
+        /// </summary>
+        [JsonProperty("summary", NullValueHandling = NullValueHandling.Ignore)]
+        public string? Summary { get; set; }
+
+        /// <summary>
         /// Error messages, each prefixed with the messages it is nested in (" > " separated).
         /// </summary>
         [JsonProperty("errors")]

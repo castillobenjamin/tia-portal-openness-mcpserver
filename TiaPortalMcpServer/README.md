@@ -196,7 +196,7 @@ Export the hardware configuration as AutomationML for review and version control
 
 - `cax_export` - Export the whole project, or one device (`deviceName`), as an `.aml` file in an existing `exportPath`
 
-TIA Portal's transfer messages go to a `.log` file of the same name next to the `.aml`. The export can succeed partially, so the response gives the overall state, error and warning counts and the error and warning messages (up to 100 each; `messagesTruncated` says when the log holds more). An existing `.aml` is replaced only with `overwrite=true`. With `normalize=true`, element IDs are replaced with GUIDs derived from each element's path (element name, `Name` and position among equally named siblings), references to them are rewritten to match, write timestamps (`LastWritingDateTime`) are set to `1970-01-01T00:00:00`, and the log leaves out timestamps, so exporting an unchanged project again gives identical files. Nothing else is changed or reordered. The AML does not hold every parameter shown in the TIA Portal properties.
+TIA Portal's transfer messages go to a `.log` file of the same name next to the `.aml`. The export can succeed partially, so the response gives the overall state, error and warning counts and the error and warning messages (up to 100 each; `messagesTruncated` says when the log holds more). Each message is reported where the problem starts, with the messages it is nested in as a ` > ` separated prefix; TIA Portal's closing line ("... completed (errors: 1, warnings: 0)") goes to `summary`. An existing `.aml` is replaced only with `overwrite=true`. With `normalize=true`, element IDs are replaced with GUIDs derived from each element's path (element name, `Name` and position among equally named siblings), references to them are rewritten to match, write timestamps (`LastWritingDateTime`) are set to `1970-01-01T00:00:00`, and the log leaves out timestamps, so exporting an unchanged project again gives identical files. Nothing else is changed or reordered. The AML does not hold every parameter shown in the TIA Portal properties.
 
 ### Utility Operations
 - `utilities_get_project_info` - Get project information
@@ -255,7 +255,7 @@ Tools for WinCC Unified HMI software (Unified Comfort Panels and PC runtimes). W
 For the list tools, `fileName` is a base name such as `GraphicLists`; TIA Portal adds its own extension. The imports accept the same base name or the name of the written `.hmi.yml` file.
 - `hmi_unified_scripts_list` - List global script modules
 - `hmi_unified_scripts_export` - Export all script modules, or one module, to files
-- `hmi_unified_scripts_import` - Import script modules, or one file, from such files
+- `hmi_unified_scripts_import` - Import script modules, or one file, from such files. TIA Portal V21 imports comments that stand between the `End of Global definition area` comment and the first function into the global definition area, so the next export moves that comment below them once; the result's `warnings` name the affected files, also with `dryRun`
 
 #### Screen snapshots
 WinCC Unified screens have no Openness export, so `hmi_unified_screens_snapshot(deviceName, exportPath, screenName = "")` reads them through the object model and writes one file per screen to `<exportPath>\Screens\<screen group path>\<screen>.json`, for review in git (snapshots cannot be imported):
@@ -265,7 +265,8 @@ WinCC Unified screens have no Openness export, so `hmi_unified_screens_snapshot(
 - Parts such as fonts as nested objects; dynamizations keyed by property, event handlers keyed by event, faceplate interfaces keyed by property; empty collections are left out.
 - Colors as `#AARRGGBB`, enums by member name, multilingual texts as `{ "<culture>": "<text>" }`.
 - Script code in sidecar files below `<screen>.scripts\`: `<item>.<event>.js` for event handlers (the screen's own events use the screen name), `<item>.<property>.dyn.js` for script dynamizations, with `.global` before the extension for global definition areas. The JSON references them as `{ "file": "<screen>.scripts/<file>" }`.
-- Properties that cannot be read are listed per object under `@unreadable` and in the tool result.
+- Properties that cannot be read are listed per object under `@unreadable` and in the tool result. `DynamizationType` and `PropertyName` of an event handler's script, which TIA Portal never supports there, are left out without an entry.
+- System diagnosis controls (`HmiSystemDiagnosisControl`) are written as `{ "@type", "Name", "@skipped" }` without reading them: reading one made TIA Portal V21 hang and exit. If a read still ends the snapshot, the error names the screen, item path, property and type being read.
 - Sorted keys, UTF-8 without BOM, LF line endings and a final newline, so an unchanged screen gives identical files; files whose content is unchanged are not rewritten. Files of deleted or renamed screens and scripts are not removed; the tool returns every file of the run.
 
 The same format covers the rest of the HMI configuration, with one file per collection, `{ "items": { "<name>": { ... } } }`, sorted by name:

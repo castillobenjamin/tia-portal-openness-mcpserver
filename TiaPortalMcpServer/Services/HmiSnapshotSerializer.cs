@@ -30,6 +30,24 @@ namespace TiaPortalMcpServer.Services
     }
 
     /// <summary>
+    /// A read that ended the snapshot (the connection to TIA Portal is gone or TIA Portal failed), with the object path,
+    /// type and property being read when it happened.
+    /// </summary>
+    public sealed class HmiSnapshotReadException : Exception
+    {
+        public HmiSnapshotReadException(string location, Exception innerException)
+            : base($"Reading {location} failed: {innerException.Message}", innerException)
+        {
+            Location = location;
+        }
+
+        /// <summary>
+        /// "&lt;root&gt;: &lt;path&gt;.&lt;property&gt; (&lt;type&gt;)".
+        /// </summary>
+        public string Location { get; }
+    }
+
+    /// <summary>
     /// Turns an object graph (a WinCC Unified screen with its items, parts, dynamizations and event handlers) into a
     /// deterministic JSON snapshot by reading the public properties of the objects the graph owns through reflection.
     /// Script code goes to sidecar files.
@@ -47,7 +65,10 @@ namespace TiaPortalMcpServer.Services
     /// Interface and DriverProperties become objects keyed by property or event; other collections stay arrays; empty collections are left out.</item>
     /// <item>Non-empty ScriptCode and GlobalDefinitionAreaScriptCode values are moved to sidecar files and replaced by
     /// { "file": "&lt;relative path&gt;" }.</item>
-    /// <item>Properties that throw when read are listed under "@unreadable".</item>
+    /// <item>Properties that throw when read are listed under "@unreadable", except DynamizationType and PropertyName
+    /// of an event handler's script, which TIA Portal never supports there.</item>
+    /// <item>Objects of the skipped types passed in are not read: they are written as { "@type", "Name", "@skipped" }.</item>
+    /// <item>A read that ends the snapshot throws <see cref="HmiSnapshotReadException"/> naming the property.</item>
     /// </list>
     /// </remarks>
     public sealed class HmiSnapshotSerializer
@@ -79,6 +100,17 @@ namespace TiaPortalMcpServer.Services
         private static readonly HashSet<string> ScriptProperties = new HashSet<string>(StringComparer.Ordinal) { "ScriptCode", GlobalDefinitionProperty };
 
         /// <summary>
+        /// Properties of an event handler's script that TIA Portal refuses to read ("not supported for event script
+        /// action"); left out without an "@unreadable" entry when reading them fails.
+        /// </summary>
+        private static readonly HashSet<string> EventScriptUnsupported = new HashSet<string>(StringComparer.Ordinal) { "DynamizationType", "PropertyName" };
+
+        /// <summary>
+        /// The "@skipped" text of objects of a skipped type.
+        /// </summary>
+        public const string SkippedReason = "not read: reading this type through Openness crashed TIA Portal";
+
+        /// <summary>
         /// Collections written as objects keyed by these properties of their elements, and whether the collection name is part
         /// of the sidecar file name of scripts below them.
         /// </summary>
@@ -97,6 +129,7 @@ namespace TiaPortalMcpServer.Services
         private readonly Func<object, JToken?>? _convert;
         private readonly Func<object, object, bool>? _isOwnedBy;
         private readonly Action<string>? _trace;
+        private readonly HashSet<string> _skippedTypes;
         private readonly string _sidecarFolder;
         private readonly List<SnapshotSidecar> _sidecars = new List<SnapshotSidecar>();
         private readonly HashSet<string> _sidecarNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -109,12 +142,14 @@ namespace TiaPortalMcpServer.Services
         /// false writes the value as a reference instead of reading it. Null reads everything.</param>
         /// <param name="trace">Called with the path of each root object, collection entry and screen item before it is read,
         /// so a log names the object being read when reading fails badly.</param>
-        public HmiSnapshotSerializer(string sidecarFolder, Func<object, JToken?>? convert = null, Func<object, object, bool>? isOwnedBy = null, Action<string>? trace = null)
+        /// <param name="skippedTypes">Runtime type names (without namespace) of objects that are not read.</param>
+        public HmiSnapshotSerializer(string sidecarFolder, Func<object, JToken?>? convert = null, Func<object, object, bool>? isOwnedBy = null, Action<string>? trace = null, IEnumerable<string>? skippedTypes = null)
         {
             _sidecarFolder = sidecarFolder;
             _convert = convert;
             _isOwnedBy = isOwnedBy;
             _trace = trace;
+            _skippedTypes = new HashSet<string>(skippedTypes ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
         }
 
         /// <summary>
@@ -207,9 +242,22 @@ namespace TiaPortalMcpServer.Services
             return string.Format(CultureInfo.InvariantCulture, "#{0:X2}{1:X2}{2:X2}{3:X2}", color.A, color.R, color.G, color.B);
         }
 
-        private JObject SerializeObject(object value, IReadOnlyList<string> path, bool inDynamization, int depth)
+        private JObject SerializeObject(object value, IReadOnlyList<string> path, bool inDynamization, int depth, bool eventScript = false)
         {
-            var result = new JObject { ["@type"] = value.GetType().Name };
+            var typeName = value.GetType().Name;
+            var result = new JObject { ["@type"] = typeName };
+            if (_skippedTypes.Contains(typeName))
+            {
+                var name = ReadName(value);
+                if (name != null)
+                {
+                    result["Name"] = name;
+                }
+
+                result["@skipped"] = SkippedReason;
+                return result;
+            }
+
             var unreadable = new List<string>();
 
             foreach (var property in GetProperties(value.GetType()))
@@ -236,9 +284,20 @@ namespace TiaPortalMcpServer.Services
                 }
                 catch (Exception ex) when (IsReadFailure(ex))
                 {
+                    if (eventScript && EventScriptUnsupported.Contains(property.Name))
+                    {
+                        continue;
+                    }
+
                     var inner = ex is TargetInvocationException && ex.InnerException != null ? ex.InnerException : ex;
                     unreadable.Add(property.Name);
                     _unreadable.Add($"{_rootName}: {string.Join(".", path.Concat(new[] { property.Name }))}: {inner.Message}");
+                }
+                catch (Exception ex) when (!(ex is HmiSnapshotReadException))
+                {
+                    var inner = ex is TargetInvocationException && ex.InnerException != null ? ex.InnerException : ex;
+                    var location = $"{_rootName}: {string.Join(".", path.Concat(new[] { property.Name }))} ({typeName})";
+                    throw new HmiSnapshotReadException(location, inner);
                 }
             }
 
@@ -310,7 +369,9 @@ namespace TiaPortalMcpServer.Services
                 return Reference(value);
             }
 
-            return SerializeObject(value, name == ScriptProperty ? path : Append(path, name), inDynamization, depth);
+            // An event handler's Script is the only Script outside the Dynamizations collection.
+            var isScript = name == ScriptProperty;
+            return SerializeObject(value, isScript ? path : Append(path, name), inDynamization, depth, isScript && !inDynamization);
         }
 
         private static bool IsChildCollection(string name)
@@ -548,10 +609,16 @@ namespace TiaPortalMcpServer.Services
 
         /// <summary>
         /// True for failures reading one property, which are recorded and skipped. Failures that mean the connection to TIA
-        /// Portal is gone (Openness NonRecoverableException, disposed objects) end the snapshot instead.
+        /// Portal is gone (Openness NonRecoverableException, disposed objects) end the snapshot instead, as does such a
+        /// failure already wrapped in <see cref="HmiSnapshotReadException"/> by a nested read.
         /// </summary>
         private static bool IsReadFailure(Exception ex)
         {
+            if (ex is HmiSnapshotReadException)
+            {
+                return false;
+            }
+
             var inner = ex is TargetInvocationException && ex.InnerException != null ? ex.InnerException : ex;
             if (inner is OutOfMemoryException || inner is ObjectDisposedException)
             {

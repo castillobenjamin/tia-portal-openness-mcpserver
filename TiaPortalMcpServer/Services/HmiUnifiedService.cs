@@ -345,6 +345,12 @@ namespace TiaPortalMcpServer.Services
         }
 
         /// <summary>
+        /// Screen item types that snapshots do not read. Reading the system diagnosis control
+        /// (HmiSystemDiagnosisControl) made TIA Portal V21 hang for 26 s and exit with a NonRecoverableException.
+        /// </summary>
+        public static readonly IReadOnlyList<string> SnapshotSkippedTypes = new[] { "HmiSystemDiagnosisControl" };
+
+        /// <summary>
         /// Owner check for <see cref="HmiSnapshotSerializer"/>: an engineering object or composition belongs to
         /// <paramref name="owner"/> when its Parent is the owner. Anything else in a property (another screen, a tag, a
         /// library type) is a reference the snapshot must not read into. Plain .NET values always belong to their owner.

@@ -278,6 +278,36 @@ namespace TiaPortalMcpServer.Tests
         }
 
         [Fact]
+        public void CaxLogCollectProblems_PutsTheClosingLineInSummary()
+        {
+            var messages = new List<CaxMessage>
+            {
+                new CaxMessage
+                {
+                    State = "Error",
+                    Message = "The export is being processed",
+                    Children = { new CaxMessage { State = "Error", Message = "Unable to process device item 'Unified_PC_RT_1920x1080'." } }
+                },
+                new CaxMessage { State = "Error", Message = "Exporting of the CAx data is completed (errors: 1, warnings: 0)" }
+            };
+            var result = new CaxExportResult();
+
+            CaxLog.CollectProblems(messages, result);
+
+            Assert.Equal(new[] { "The export is being processed > Unable to process device item 'Unified_PC_RT_1920x1080'." }, result.Errors);
+            Assert.Equal("Exporting of the CAx data is completed (errors: 1, warnings: 0)", result.Summary);
+        }
+
+        [Theory]
+        [InlineData("Exporting of the CAx data is completed (errors: 1, warnings: 0)", true)]
+        [InlineData("Export completed (Errors: 0, Warnings: 12)", true)]
+        [InlineData("Unable to process device item 'X'.", false)]
+        public void CaxLogIsSummary_MatchesTheErrorAndWarningCount(string text, bool expected)
+        {
+            Assert.Equal(expected, CaxLog.IsSummary(new CaxMessage { State = "Error", Message = text }));
+        }
+
+        [Fact]
         public void CaxLogCollectProblems_TruncatesLongLists()
         {
             var messages = Enumerable.Range(0, CaxLog.MaxReportedMessages + 5)

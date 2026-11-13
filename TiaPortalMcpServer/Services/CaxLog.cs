@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using TiaPortalMcpServer.Models;
 
 namespace TiaPortalMcpServer.Services
@@ -36,9 +37,23 @@ namespace TiaPortalMcpServer.Services
         /// > the actual error), so a message is only reported where the problem starts: when none of its children has
         /// the same or a more severe state. The parents stay in the prefix.
         /// </summary>
+        /// <remarks>
+        /// TIA Portal's closing message ("Exporting of the CAx data is completed (errors: 1, warnings: 0)") carries the
+        /// overall state; it goes to <see cref="CaxExportResult.Summary"/> instead of the errors or warnings.
+        /// </remarks>
         public static void CollectProblems(IEnumerable<CaxMessage> messages, CaxExportResult result)
         {
             CollectProblems(messages, string.Empty, result);
+        }
+
+        private static readonly Regex SummaryPattern = new Regex(@"\(\s*errors\s*:\s*\d+\s*,\s*warnings\s*:\s*\d+\s*\)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// Whether <paramref name="message"/> is TIA Portal's closing count of errors and warnings.
+        /// </summary>
+        public static bool IsSummary(CaxMessage message)
+        {
+            return message.Children.Count == 0 && SummaryPattern.IsMatch(message.Message);
         }
 
         private static int Severity(string state)
@@ -62,6 +77,12 @@ namespace TiaPortalMcpServer.Services
         {
             foreach (var message in messages)
             {
+                if (IsSummary(message))
+                {
+                    result.Summary = message.Message;
+                    continue;
+                }
+
                 var text = prefix.Length == 0 ? message.Message : prefix + " > " + message.Message;
                 var severity = Severity(message.State);
                 var target = severity == 0 || ChildIsAsSevere(message, severity) ? null
